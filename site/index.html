@@ -1160,7 +1160,6 @@ function rToday(root){
   displayVotes.forEach(v=>{
     if(isAway(v.id,S.simTime)){groups['부재'].push(v);}
     else if(v.todayStatus){groups[v.todayStatus]?groups[v.todayStatus].push(v):null;}
-    else if(v.dayStatus){groups[v.dayStatus]?groups[v.dayStatus].push(v):null;}
     else{groups['미선택'].push(v);}
   });
 
@@ -1200,9 +1199,9 @@ function rToday(root){
     
     offVotes.forEach(v=>{
       const away=isAway(v.id,S.simTime),awInfo=getAway(v.id,S.simTime);
-      // 금일 상태 우선, 없으면 전일 상태
+      // 금일 상태만 표시 (전일 투표 데이터 안 보임)
       const todayS=v.todayStatus||null;
-      const status=away?(awInfo?.type||'부재'):(todayS||v.dayStatus||'미선택');
+      const status=away?(awInfo?.type||'부재'):(todayS||'미선택');
       const ds=DAY_STATUS.find(d=>d.key===status);
       const icon=ds?ds.icon:away?'✈️':'❓';
       const colors={
@@ -1215,24 +1214,16 @@ function rToday(root){
       const row=h('div',{style:{padding:'11px 15px',borderBottom:'1px solid #f5f5f5',display:'flex',alignItems:'center',justifyContent:'space-between'}});
       
       const left=h('div',{style:{display:'flex',alignItems:'center',gap:'10px'}});
-      left.append(h('div',{style:{width:'36px',height:'36px',borderRadius:'10px',background:away?'#e3f2fd':v.dayStatus?'#f5f5f5':'#ffebee',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'18px'}},icon));
+      left.append(h('div',{style:{width:'36px',height:'36px',borderRadius:'10px',background:away?'#e3f2fd':todayS?'#f5f5f5':'#ffebee',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'18px'}},icon));
       const info=h('div',null);
       const nameRow=h('div',{style:{display:'flex',alignItems:'center',gap:'5px'}});
       nameRow.append(h('span',{style:{fontWeight:800,fontSize:'13px'}},v.name));
-      nameRow.append(h('span',{className:'office-badge '+(v.office==='강남'?'seoul':'incheon'),style:{display:'none'}}));
-      
       info.append(nameRow);
-      
-      const detailParts=[v.dept];
-      if(v.clockIn)detailParts.push('출근 '+v.clockIn);
-      if(v.clockOut)detailParts.push('퇴근 '+v.clockOut);
-      if(v.reason)detailParts.push('📝 '+v.reason);
-      if(v.location)detailParts.push('📍 '+v.location);
-      info.append(h('div',{style:{fontSize:'11px',color:'#999',marginTop:'2px'}},detailParts.join(' · ')));
+      info.append(h('div',{style:{fontSize:'11px',color:'#999',marginTop:'2px'}},v.dept));
       left.append(info);
       row.append(left);
       
-      // 상태 뱃지
+      // 상태 뱃지 (금일만)
       row.append(h('div',{style:{padding:'4px 10px',borderRadius:'8px',fontSize:'11px',fontWeight:800,color:stColor,background:stColor+'18',whiteSpace:'nowrap'}},status));
       
       list.append(row);
@@ -1659,6 +1650,23 @@ function rAway(root){
 function rStatus(root){
   const w=h('div',{style:{padding:'11px'}});
 
+  // 이번 주 데이터 Firebase에서 미리 로드
+  const _weekDates=getWeekDates(S.simTime);
+  _weekDates.forEach(wd=>{
+    const dk=dateKey(wd);
+    if(!localStorage.getItem('day_'+dk)&&!localStorage.getItem('day_'+dk+'_fbChecked')){
+      localStorage.setItem('day_'+dk+'_fbChecked','1');
+      db.ref('votes/'+dk).once('value',snap=>{
+        const data=snap.val();
+        if(data){
+          const records=Object.values(data);
+          localStorage.setItem('day_'+dk,JSON.stringify(records));
+          render(); // 데이터 받으면 다시 그리기
+        }
+      });
+    }
+  });
+
   // Office filter
   const filter=h('div',{className:'office-filter'});
   ["전체","강남","송도"].forEach(o=>{
@@ -1757,14 +1765,24 @@ function rStatus(root){
       const off=isOffDay(wd);const hol=isHoliday(wd);
       const dk=dateKey(wd),prevDk=dateKey(getPrevWorkday(S.simTime));
       const wdDate=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate());
-      let val='';
-      if(wdDate>=todayDate){val='';} // 오늘 이후는 빈칸
-      else if(isAway(v.id,wd)){val='부재';}
+      let val='';let valColor='#ccc';
+      if(wdDate>=todayDate){val='';}
+      else if(isAway(v.id,wd)){val='부재';valColor='#1565c0';}
       else if(off){val='';}
-      else if(dk===prevDk){const ot=calcOvertime(v.clockIn,v.clockOut);val=ot>0?String(ot):'0';weekTotal+=(ot||0);}
-      else{const dayRec=localStorage.getItem('day_'+dk);if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(rr=>rr.id===v.id);if(rec){if(rec.dayStatus==='해외출장'||rec.dayStatus==='국내출장')val=rec.dayStatus.slice(0,2);else{val=String(rec.overtime||0);weekTotal+=(rec.overtime||0);}}}else val='';}
-      r.append(h('div',{style:{flex:1,textAlign:'center',fontSize:'10px',fontWeight:val&&val!=='0'?700:400,
-        color:val==='부재'?'#1565c0':parseFloat(val)>0?'#E65100':'#ccc',
+      else if(dk===prevDk){
+        const ds=v.dayStatus;
+        const ot=calcOvertime(v.clockIn,v.clockOut);
+        if(ds&&ds!=='출근'){val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';}
+        else if(ot>0){val=String(ot);weekTotal+=ot;valColor='#E65100';}
+        else{val='0';}
+      }
+      else{const dayRec=localStorage.getItem('day_'+dk);if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(rr=>rr.id===v.id);if(rec){
+        const ds=rec.dayStatus;
+        if(ds&&ds!=='출근'){val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';}
+        else{const rot=rec.overtime||0;val=String(rot);weekTotal+=rot;valColor=rot>0?'#E65100':'#ccc';}
+      }}else val='';}
+      r.append(h('div',{style:{flex:1,textAlign:'center',fontSize:val.length>2?'8px':'10px',fontWeight:val&&val!=='0'?700:400,
+        color:valColor,
         background:hol?'#ffebee':off?'#f5f5f5':wdDate>=todayDate?'#f9f9f9':'transparent',borderRadius:'3px',padding:'2px 0'}},val||'—'));
     });
     r.append(h('div',{style:{width:'36px',textAlign:'center',fontSize:'11px',fontWeight:900,color:weekTotal>12?'#c62828':weekTotal>0?'#E65100':'#ccc'}},weekTotal>0?String(weekTotal):'—'));
