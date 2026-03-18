@@ -179,12 +179,12 @@ const MEMBERS=[
   {id:"SD21",name:"박은자",dept:"개발팀",part:"제품개발P",rank:"팀원",type:"도급직",office:"송도",junior:false},
   {id:"SD22",name:"고정윤",dept:"개발팀",part:"제품개발P",rank:"팀원",type:"도급직",office:"송도",junior:false},
   {id:"SD23",name:"민미정",dept:"개발팀",part:"제품개발P",rank:"팀원",type:"도급직",office:"송도",junior:false},
+  {id:"SD24",name:"김현지",dept:"개발팀",part:"제품개발P",rank:"팀원",type:"도급직",office:"송도",junior:false},
 ];
 const OFFICES=["강남","송도"];
-const JUNIORS=MEMBERS.filter(m=>m.junior);
 const CLOCK_IN=["8:30","10:00","10:30","11:00","13:30"];
 const CLOCK_OUT=["17:30","18:00","18:30","19:00","19:30","20:00","20:30","21:00","21:30","22:00","22:30","23:00","23:30","24:00","01:00","02:00","03:00","04:00","05:00","06:00","07:00","08:00"];
-const REMINDERS=[{time:"08:10",label:"1차 알림"},{time:"11:00",label:"2차 알림"},{time:"14:00",label:"3차 알림"},{time:"16:00",label:"최종+막내"}];
+const REMINDERS=[{time:"08:10",label:"1차 알림"},{time:"11:00",label:"2차 알림"},{time:"14:00",label:"3차 알림"},{time:"16:00",label:"최종 알림"}];
 
 // ═══ 2026년 공휴일 데이터 ═══
 const HOLIDAYS_2026={
@@ -301,7 +301,7 @@ let S={
   editing:false,
   etcOpen:false,
   todayEtcOpen:false,
-  todayFilter:{office:'전체',dept:'전체'}, // 오늘 탭 필터
+  todayFilter:{office:null,dept:'전체'}, // 오늘 탭 필터
   dogeupMonth:new Date().getMonth(), // 도급직 탭 월 (0=1월)
   dogeupYear:new Date().getFullYear(),
   historyView:null,
@@ -408,7 +408,7 @@ function officeBg(o){return o==='강남'?'#E3F2FD':'#E0F2F1';}
 
 // ═══ 관리자 — 직원 관리 ═══
 const ADMIN_PW='jysol';
-const DATA_VERSION='v3_gangnam_songdo';
+const DATA_VERSION='v4_with_dogeup';
 function loadMembers(){
   const ver=localStorage.getItem('members_ver');
   if(ver!==DATA_VERSION){localStorage.removeItem('members');localStorage.setItem('members_ver',DATA_VERSION);}
@@ -618,7 +618,7 @@ function sendReminder(idx){
   addChat("bot",msg,"reminder");
   push("📢 재영근태관리","미투표 "+unchecked.length+"명");
   S.votes=S.votes.map(v=>!v.clockIn&&!isExempt(v.id,S.simTime)?{...v,reminders:[...v.reminders,s.time]}:v);
-  if(idx===3){const jn=JUNIORS.map(j=>j.name+"("+j.office+")").join(", ");setTimeout(()=>{addChat("bot","🚨 최종!\n막내 → "+jn,"urgent");push("🚨 막내","미체크 확인!");S.votes=S.votes.map(v=>!v.clockIn&&!isExempt(v.id,S.simTime)?{...v,juniorNotified:true}:v);render();},300);}
+  
   render();
 }
 function advTime(){const n=new Date(S.simTime);n.setMinutes(n.getMinutes()+10);S.simTime=n;REMINDERS.forEach((s,i)=>{if(s.time===fmtT(n))setTimeout(()=>sendReminder(i),100);});render();}
@@ -672,45 +672,51 @@ async function dlDaily(officeFilter){
     if(!resp.ok)throw new Error('일일근태.xlsx 파일 없음');
     const buf=await resp.arrayBuffer();
     const wb=XLSX.read(buf,{type:'array',cellStyles:true,cellNF:true,cellDates:true});
-    const ws=wb.Sheets[wb.SheetNames[0]]; // 일일근태 시트
+    const ws=wb.Sheets[wb.SheetNames[0]];
     
     // 날짜 셀 (B3)
-    ws['B3']={t:'s',v:prevDay.getFullYear()+'-'+String(prevDay.getMonth()+1).padStart(2,'0')+'-'+String(prevDay.getDate()).padStart(2,'0')};
+    setCellStr(ws,2,1,prevDay.getFullYear()+'-'+String(prevDay.getMonth()+1).padStart(2,'0')+'-'+String(prevDay.getDate()).padStart(2,'0'));
     
     // 데이터 행 (R7부터)
     offVotes.forEach((v,i)=>{
-      const r=7+i;
-      setCellNum(ws,r-1,1,i+1); // NO
-      setCellStr(ws,r-1,2,'AF'); // 사업부
-      setCellStr(ws,r-1,3,v.dept); // 팀
-      setCellStr(ws,r-1,4,v.part||v.dept); // Part
-      setCellStr(ws,r-1,5,v.name); // 이름
-      setCellStr(ws,r-1,6,v.rank||''); // 직위
-      setCellStr(ws,r-1,7,v.type||'정규'); // 형태
+      const r=6+i; // 0-indexed row (R7 = index 6)
+      setCellNum(ws,r,1,i+1); // B=NO
+      setCellStr(ws,r,2,'AF'); // C=사업부
+      setCellStr(ws,r,3,v.dept); // D=팀
+      setCellStr(ws,r,4,v.part||v.dept); // E=Part
+      setCellStr(ws,r,5,v.name); // F=이름
+      setCellStr(ws,r,6,v.rank||''); // G=직위
+      setCellStr(ws,r,7,v.type||'정규'); // H=형태
       
-      // 상태 O 표시
-      const st=v.dayStatus;
+      // 금일 상태 우선, 없으면 전일 상태, 없으면 부재 체크
+      const away=isAway(v.id,S.simTime);
+      const awInfo=away?getAway(v.id,S.simTime):null;
+      const st=away?(awInfo?.type||null):(v.todayStatus||v.dayStatus);
       if(st&&STATUS_COL_MAP[st]){
-        setCellStr(ws,r-1,STATUS_COL_MAP[st]-1,'O');
+        setCellStr(ws,r,STATUS_COL_MAP[st]-1,'O');
       }
-      // 미출 체크
-      if(!v.clockIn&&!isExempt(v.id,S.simTime)&&st!=='결근'){
-        setCellStr(ws,r-1,9,'O'); // J=미출
+      // 미출 체크 (부재도 아니고, 금일 상태도 없고, 전일 출근도 없으면)
+      if(!away&&!v.todayStatus&&!v.clockIn&&!isExempt(v.id,S.simTime)&&st!=='결근'){
+        setCellStr(ws,r,9,'O'); // J=미출
       }
+      
+      // 출퇴근 시간 & 연장근무 (전일 데이터) - 빈 컬럼 활용
+      // 양식에 출퇴근 컬럼이 없으므로 사유/행선지 뒤에 추가하지 않음
+      // 대신 콘솔용으로만 저장
     });
     
     // 범위 업데이트
     const maxRow=7+offVotes.length;
     ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:maxRow,c:29}});
     
-    // 파일명 생성
     const dn=['일','월','화','수','목','금','토'];
     const fname='일일근태_AF_'+officeName+'_'+prevDay.getFullYear()+String(prevDay.getMonth()+1).padStart(2,'0')+String(prevDay.getDate()).padStart(2,'0')+'('+dn[prevDay.getDay()]+').xlsx';
     
     XLSX.writeFile(wb,fname,{bookSST:true,bookType:'xlsx'});
+    console.log('일일근태 다운로드 완료:',fname,'데이터:',offVotes.length+'명');
   }catch(e){
-    console.error(e);
-    alert('일일근태.xlsx 파일을 불러올 수 없습니다.\nsite 폴더에 일일근태.xlsx가 있는지 확인해주세요.\n\nCSV로 대신 다운로드합니다.');
+    console.error('일일근태 다운로드 에러:',e);
+    alert('일일근태.xlsx 파일을 불러올 수 없습니다.\n에러: '+e.message+'\n\nCSV로 대신 다운로드합니다.');
     dlCSV_fallback(office);
   }
 }
@@ -732,8 +738,7 @@ async function dlWeekly(officeFilter){
     const ws=wb.Sheets[wb.SheetNames[0]]; // 주 연장근무 시트
     
     // 제목 (B2)
-    ws['B2']={t:'s',v:'연장근무 합계 12시간 이내로 ('+getWeekLabel(S.simTime)+')'};
-    
+    setCellStr(ws,1,1,'연장근무 합계 12시간 이내로 ('+getWeekLabel(S.simTime)+')');    
     // 요일 헤더에 공휴일/주말 표시 (D3~J3)
     weekDates.forEach((wd,i)=>{
       const col=3+i; // D=3, E=4, ...J=9
@@ -757,9 +762,13 @@ async function dlWeekly(officeFilter){
         setCellStr(ws,row,2,v.name);
         
         let weekTotal=0;
+        const todayDate=new Date(S.simTime.getFullYear(),S.simTime.getMonth(),S.simTime.getDate());
         weekDates.forEach((wd,di)=>{
           const col=3+di;
-          if(isAway(v.id,wd)){
+          const wdDate=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate());
+          if(wdDate>=todayDate){
+            // 오늘 이후는 빈칸
+          } else if(isAway(v.id,wd)){
             const ai=getAway(v.id,wd);
             setCellStr(ws,row,col,ai?.type||'부재');
           } else if(isOffDay(wd)){
@@ -919,7 +928,7 @@ function rAdmin(root){
   });
   
   // Selects row
-  const selRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px',marginBottom:'10px'}});
+  const selRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}});
   // 직위
   const rankSel=h('div',null,h('div',{style:{fontSize:'11px',fontWeight:700,color:'#555',marginBottom:'4px'}},'직위'));
   const rs=h('select',{style:{width:'100%',padding:'10px',borderRadius:'9px',border:'2px solid #e5e5e5',fontSize:'13px',fontFamily:'inherit'},onChange:e=>{S.adminForm.rank=e.target.value;}});
@@ -930,11 +939,7 @@ function rAdmin(root){
   const os=h('select',{style:{width:'100%',padding:'10px',borderRadius:'9px',border:'2px solid #e5e5e5',fontSize:'13px',fontFamily:'inherit'},onChange:e=>{S.adminForm.office=e.target.value;}});
   ['강남','송도'].forEach(o=>{const op=h('option',{value:o},o);if(f.office===o)op.selected=true;os.append(op);});
   offSel.append(os);selRow.append(offSel);
-  // 막내
-  const jrSel=h('div',null,h('div',{style:{fontSize:'11px',fontWeight:700,color:'#555',marginBottom:'4px'}},'막내'));
-  const js=h('select',{style:{width:'100%',padding:'10px',borderRadius:'9px',border:'2px solid #e5e5e5',fontSize:'13px',fontFamily:'inherit'},onChange:e=>{S.adminForm.junior=e.target.value==='true';}});
-  [['false','아니오'],['true','예']].forEach(([v,l])=>{const o=h('option',{value:v},l);if(String(f.junior)===v)o.selected=true;js.append(o);});
-  jrSel.append(js);selRow.append(jrSel);
+
   formBox.append(selRow);
 
   // Buttons
@@ -962,7 +967,7 @@ function rAdmin(root){
       left.append(h('div',{style:{fontWeight:800,fontSize:'13px',display:'flex',alignItems:'center',gap:'5px'}},
         m.name,
         h('span',{style:{fontSize:'10px',color:'#999',fontWeight:400}},m.id),
-        m.junior?h('span',{style:{display:'inline-block',padding:'1px 5px',borderRadius:'3px',fontSize:'8px',fontWeight:800,background:'#FFF3CD',color:'#856404'}},'막내'):null
+        null
       ));
       left.append(h('div',{style:{fontSize:'11px',color:'#888',marginTop:'2px'}},m.dept+(m.part&&m.part!==m.dept?' / '+m.part:'')+' · '+m.rank));
       card.append(left);
@@ -977,7 +982,7 @@ function rAdmin(root){
   // CSV upload
   wrap.append(h('div',{style:{marginTop:'20px',background:'white',borderRadius:'16px',padding:'20px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}},
     h('div',{style:{fontSize:'14px',fontWeight:800,marginBottom:'8px',color:'var(--brown)'}},'📤 CSV로 일괄 등록'),
-    h('div',{style:{fontSize:'11px',color:'#999',marginBottom:'12px',lineHeight:'1.6'}},'CSV 형식: 사번,이름,팀,Part,직위,사무실,막내여부\n예) GN01,홍길동,개발팀,개발팀,프로,강남,false'),
+    h('div',{style:{fontSize:'11px',color:'#999',marginBottom:'12px',lineHeight:'1.6'}},'CSV 형식: 사번,이름,팀,Part,직위,사무실\n예) GN01,홍길동,개발팀,개발팀,프로,강남'),
     h('input',{type:'file',accept:'.csv',style:{fontSize:'12px'},onChange:e=>{
       const file=e.target.files[0];if(!file)return;
       const reader=new FileReader();
@@ -999,7 +1004,7 @@ function rAdmin(root){
       reader.readAsText(file);
     }}),
     h('button',{className:'btn',style:{marginTop:'10px',padding:'10px 16px',background:'#f5f5f5',color:'#555',borderRadius:'9px',fontSize:'12px'},onClick:()=>{
-      let csv="\uFEFF사번,이름,팀,Part,직위,사무실,연락처,막내여부\n";
+      let csv="\uFEFF사번,이름,팀,Part,직위,사무실\n";
       members.forEach(m=>{csv+=m.id+','+m.name+','+m.dept+','+(m.part||'')+','+(m.rank||'')+','+(m.office||'')+','+','+m.junior+'\n';});
       const b=new Blob([csv],{type:"text/csv;charset=utf-8;"}),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download='직원명단.csv';a.click();
     }},'📥 현재 명단 CSV 다운로드')
@@ -1028,7 +1033,7 @@ function rMain(root){
     ),
     h('div',{style:{display:'flex',alignItems:'center',gap:'7px'}},
       h('div',{style:{padding:'4px 9px',borderRadius:'5px',background:'rgba(0,0,0,0.08)',fontSize:'17px',fontWeight:800,fontVariantNumeric:'tabular-nums'}},fmtT(S.simTime)),
-      h('button',{style:{background:'rgba(0,0,0,0.08)',border:'none',borderRadius:'5px',padding:'4px 9px',fontSize:'11px',fontWeight:700,color:'#666',cursor:'pointer',fontFamily:'inherit'},onClick:()=>{S.screen="gate";S.user=null;S.gatePw="";render();}},'나가기'))
+      h('button',{style:{background:'rgba(0,0,0,0.08)',border:'none',borderRadius:'5px',padding:'4px 9px',fontSize:'11px',fontWeight:700,color:'#666',cursor:'pointer',fontFamily:'inherit'},onClick:()=>{S.screen="auth";S.user=null;render();}},'나가기'))
   ));
   const tabs=h('div',{className:'tabs'});
   [{k:'vote',l:'📋 투표'},{k:'today',l:'🏢 오늘'},{k:'away',l:'✈️ 부재'},{k:'dogeup',l:'👷 도급직'},{k:'status',l:'📊 현황'},{k:'history',l:'📁 기록'}].forEach(t=>tabs.append(h('button',{className:'tab'+(S.tab===t.k?' on':''),onClick:()=>{S.tab=t.k;render();}},t.l)));
@@ -1106,14 +1111,25 @@ function rToday(root){
   const prevDay=getPrevWorkday(S.simTime);
   w.append(h('div',{style:{fontSize:'11px',color:'#999',marginBottom:'10px'}},'투표 대상일: '+fmtD(prevDay)+' | 금일: '+fmtD(S.simTime)));
 
-  // ★ 사무실 + 팀 필터 ★
+  // ★ 사무실 + 팀 필터 (토글: 다시 누르면 해제) ★
   const tf=S.todayFilter;
   const officeRow=h('div',{style:{display:'flex',gap:'4px',marginBottom:'6px',flexWrap:'wrap'}});
   ['전체','강남','송도'].forEach(o=>{
-    officeRow.append(h('button',{style:{padding:'6px 12px',borderRadius:'8px',border:tf.office===o?'2px solid #003B7B':'1px solid #ddd',background:tf.office===o?'#E3F2FD':'white',color:tf.office===o?'#003B7B':'#666',fontSize:'11px',fontWeight:700,cursor:'pointer',fontFamily:'inherit'},
-      onClick:()=>{S.todayFilter.office=o;S.todayFilter.dept='전체';render();}},o==='전체'?'👥 전체':'🏢 '+o));
+    const isSel=tf.office===o;
+    officeRow.append(h('button',{style:{padding:'6px 12px',borderRadius:'8px',border:isSel?'2px solid #003B7B':'1px solid #ddd',background:isSel?'#E3F2FD':'white',color:isSel?'#003B7B':'#666',fontSize:'11px',fontWeight:700,cursor:'pointer',fontFamily:'inherit'},
+      onClick:()=>{
+        if(tf.office===o){S.todayFilter.office=null;S.todayFilter.dept='전체';}
+        else{S.todayFilter.office=o;S.todayFilter.dept='전체';}
+        render();
+      }},o==='전체'?'👥 전체':'🏢 '+o));
   });
   w.append(officeRow);
+  
+  // 사무실이 선택된 경우에만 팀 필터 + 직원 목록 표시
+  if(!tf.office){
+    w.append(h('div',{style:{padding:'30px 20px',textAlign:'center',color:'#999',fontSize:'13px'}},'사무실을 선택해주세요'));
+    root.append(w);return;
+  }
   
   // 팀 필터 (선택된 사무실의 팀만 표시)
   const filteredMembers=tf.office==='전체'?getMembers():getMembers().filter(m=>m.office===tf.office);
@@ -1132,7 +1148,7 @@ function rToday(root){
   
   // 필터 적용
   const displayVotes=S.votes.filter(v=>{
-    if(tf.office!=='전체'&&v.office!==tf.office)return false;
+    if(tf.office&&v.office!==tf.office)return false;
     if(tf.dept!=='전체'&&v.dept!==tf.dept)return false;
     return true;
   });
@@ -1204,7 +1220,7 @@ function rToday(root){
       const nameRow=h('div',{style:{display:'flex',alignItems:'center',gap:'5px'}});
       nameRow.append(h('span',{style:{fontWeight:800,fontSize:'13px'}},v.name));
       nameRow.append(h('span',{className:'office-badge '+(v.office==='강남'?'seoul':'incheon'),style:{display:'none'}}));
-      if(v.junior)nameRow.append(h('span',{style:{display:'inline-block',padding:'1px 5px',borderRadius:'3px',fontSize:'8px',fontWeight:800,background:'#FFF3CD',color:'#856404'}},'막내'));
+      
       info.append(nameRow);
       
       const detailParts=[v.dept];
@@ -1678,10 +1694,10 @@ function rStatus(root){
       officeOT>0?h('span',{style:{marginLeft:'auto',fontSize:'11px',fontWeight:800,color:'#E65100',background:'#FFF3E0',padding:'2px 8px',borderRadius:'6px'}},'연장 '+officeOT+'h'):null
     ));
     
-    const grid6='1fr 42px 42px 50px 42px 28px';
+    const grid6='1fr 42px 42px 50px 42px';
     const table=h('div',{style:{background:'white',borderRadius:'14px',boxShadow:'0 1px 3px rgba(0,0,0,0.05)',overflow:'hidden',marginBottom:'10px'}});
     table.append(h('div',{style:{display:'grid',gridTemplateColumns:grid6,gap:'1px',padding:'9px 13px',alignItems:'center',textAlign:'center',fontSize:'10px',background:'#fafafa',borderBottom:'1px solid #eee',fontWeight:800,color:'#888'}},
-      h('span',{style:{textAlign:'left'}},'이름'),h('span',null,'출근'),h('span',null,'퇴근'),h('span',null,'상태'),h('span',{style:{color:'#E65100'}},'연장'),h('span',null,'막내')));
+      h('span',{style:{textAlign:'left'}},'이름'),h('span',null,'출근'),h('span',null,'퇴근'),h('span',null,'상태'),h('span',{style:{color:'#E65100'}},'연장')));
     
     officeVotes.forEach(v=>{
       const ex=isExempt(v.id,S.simTime),reason=getExemptReason(v.id,S.simTime),hasV=v.clockIn||ex;
@@ -1736,17 +1752,20 @@ function rStatus(root){
     const r=h('div',{style:{display:'flex',gap:'2px',padding:'6px 4px',borderBottom:'1px solid #f5f5f5',alignItems:'center'}});
     r.append(h('div',{style:{width:'60px',fontSize:'10px',fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},v.name));
     let weekTotal=0;
+    const todayDate=new Date(S.simTime.getFullYear(),S.simTime.getMonth(),S.simTime.getDate());
     weekDates.forEach(wd=>{
       const off=isOffDay(wd);const hol=isHoliday(wd);
       const dk=dateKey(wd),prevDk=dateKey(getPrevWorkday(S.simTime));
+      const wdDate=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate());
       let val='';
-      if(isAway(v.id,wd)){val='부재';}
+      if(wdDate>=todayDate){val='';} // 오늘 이후는 빈칸
+      else if(isAway(v.id,wd)){val='부재';}
       else if(off){val='';}
       else if(dk===prevDk){const ot=calcOvertime(v.clockIn,v.clockOut);val=ot>0?String(ot):'0';weekTotal+=(ot||0);}
       else{const dayRec=localStorage.getItem('day_'+dk);if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(rr=>rr.id===v.id);if(rec){if(rec.dayStatus==='해외출장'||rec.dayStatus==='국내출장')val=rec.dayStatus.slice(0,2);else{val=String(rec.overtime||0);weekTotal+=(rec.overtime||0);}}}else val='';}
       r.append(h('div',{style:{flex:1,textAlign:'center',fontSize:'10px',fontWeight:val&&val!=='0'?700:400,
         color:val==='부재'?'#1565c0':parseFloat(val)>0?'#E65100':'#ccc',
-        background:hol?'#ffebee':off?'#f5f5f5':'transparent',borderRadius:'3px',padding:'2px 0'}},val||'—'));
+        background:hol?'#ffebee':off?'#f5f5f5':wdDate>=todayDate?'#f9f9f9':'transparent',borderRadius:'3px',padding:'2px 0'}},val||'—'));
     });
     r.append(h('div',{style:{width:'36px',textAlign:'center',fontSize:'11px',fontWeight:900,color:weekTotal>12?'#c62828':weekTotal>0?'#E65100':'#ccc'}},weekTotal>0?String(weekTotal):'—'));
     weekBox.append(r);
@@ -1984,7 +2003,7 @@ function rModal(root){
     box.append(h('label',null,'시작일'));box.append(h('input',{type:'date',value:S.awayForm.from,onChange:e=>{S.awayForm.from=e.target.value;}}));
     box.append(h('label',null,'종료일'));box.append(h('input',{type:'date',value:S.awayForm.to,onChange:e=>{S.awayForm.to=e.target.value;}}));
     box.append(h('label',null,'메모'));box.append(h('input',{placeholder:'예) 미국 본사 출장',value:S.awayForm.memo,onInput:e=>{S.awayForm.memo=e.target.value;}}));
-    box.append(h('div',{className:'info-box',style:{background:'#e3f2fd',color:'#1565c0'}},'⏸️ 기간 내: 알림 안감 · 미투표 제외 · 막내 알림 제외\n현황에 부재 사유 자동 표시'));
+    box.append(h('div',{className:'info-box',style:{background:'#e3f2fd',color:'#1565c0'}},'⏸️ 기간 내: 알림 안감 · 미투표 제외 · 현황에 부재 사유 자동 표시'));
     const btns=h('div',{style:{display:'flex',gap:'7px',marginTop:'4px'}});
     btns.append(h('button',{className:'btn',style:{flex:1,padding:'13px',background:'#f5f5f5',color:'#666',borderRadius:'11px'},onClick:()=>{S.modal=null;render();}},'취소'));
     btns.append(h('button',{className:'btn btn-brown',style:{flex:2,padding:'13px',borderRadius:'11px'},onClick:submitAway},'등록'));
