@@ -301,6 +301,9 @@ let S={
   editing:false,
   etcOpen:false,
   todayEtcOpen:false,
+  todayFilter:{office:'전체',dept:'전체'}, // 오늘 탭 필터
+  dogeupMonth:new Date().getMonth(), // 도급직 탭 월 (0=1월)
+  dogeupYear:new Date().getFullYear(),
   historyView:null,
   // Admin
   adminMode:false,
@@ -1028,12 +1031,13 @@ function rMain(root){
       h('button',{style:{background:'rgba(0,0,0,0.08)',border:'none',borderRadius:'5px',padding:'4px 9px',fontSize:'11px',fontWeight:700,color:'#666',cursor:'pointer',fontFamily:'inherit'},onClick:()=>{S.screen="gate";S.user=null;S.gatePw="";render();}},'나가기'))
   ));
   const tabs=h('div',{className:'tabs'});
-  [{k:'vote',l:'📋 투표'},{k:'today',l:'🏢 오늘'},{k:'away',l:'✈️ 부재'},{k:'status',l:'📊 현황'},{k:'history',l:'📁 기록'}].forEach(t=>tabs.append(h('button',{className:'tab'+(S.tab===t.k?' on':''),onClick:()=>{S.tab=t.k;render();}},t.l)));
+  [{k:'vote',l:'📋 투표'},{k:'today',l:'🏢 오늘'},{k:'away',l:'✈️ 부재'},{k:'dogeup',l:'👷 도급직'},{k:'status',l:'📊 현황'},{k:'history',l:'📁 기록'}].forEach(t=>tabs.append(h('button',{className:'tab'+(S.tab===t.k?' on':''),onClick:()=>{S.tab=t.k;render();}},t.l)));
   root.append(tabs);
   const ct=h('div',{className:'content'});root.append(ct);
   if(S.tab==='vote')rVote(ct,mv,awayMe,exemptMe);
   if(S.tab==='today')rToday(ct);
   if(S.tab==='away')rAway(ct);
+  if(S.tab==='dogeup')rDogeup(ct);
   if(S.tab==='status')rStatus(ct);
   if(S.tab==='history')rHistory(ct);
   if(S.modal)rModal(root);
@@ -1100,13 +1104,44 @@ function rToday(root){
   // ★ 전일 근무 현황 (기존) ★
   w.append(h('div',{style:{fontSize:'15px',fontWeight:900,marginBottom:'4px'}},'🏢 전일 근무 현황'));
   const prevDay=getPrevWorkday(S.simTime);
-  w.append(h('div',{style:{fontSize:'11px',color:'#999',marginBottom:'14px'}},'투표 대상일: '+fmtD(prevDay)+' | 금일: '+fmtD(S.simTime)));
+  w.append(h('div',{style:{fontSize:'11px',color:'#999',marginBottom:'10px'}},'투표 대상일: '+fmtD(prevDay)+' | 금일: '+fmtD(S.simTime)));
 
-  // 상태별 그룹핑
+  // ★ 사무실 + 팀 필터 ★
+  const tf=S.todayFilter;
+  const officeRow=h('div',{style:{display:'flex',gap:'4px',marginBottom:'6px',flexWrap:'wrap'}});
+  ['전체','강남','송도'].forEach(o=>{
+    officeRow.append(h('button',{style:{padding:'6px 12px',borderRadius:'8px',border:tf.office===o?'2px solid #003B7B':'1px solid #ddd',background:tf.office===o?'#E3F2FD':'white',color:tf.office===o?'#003B7B':'#666',fontSize:'11px',fontWeight:700,cursor:'pointer',fontFamily:'inherit'},
+      onClick:()=>{S.todayFilter.office=o;S.todayFilter.dept='전체';render();}},o==='전체'?'👥 전체':'🏢 '+o));
+  });
+  w.append(officeRow);
+  
+  // 팀 필터 (선택된 사무실의 팀만 표시)
+  const filteredMembers=tf.office==='전체'?getMembers():getMembers().filter(m=>m.office===tf.office);
+  const depts=[...new Set(filteredMembers.map(m=>m.dept))];
+  if(depts.length>1){
+    const deptRow=h('div',{style:{display:'flex',gap:'3px',marginBottom:'10px',flexWrap:'wrap',overflowX:'auto'}});
+    deptRow.append(h('button',{style:{padding:'5px 10px',borderRadius:'7px',border:tf.dept==='전체'?'2px solid var(--gold)':'1px solid #eee',background:tf.dept==='전체'?'#fffde7':'#fafafa',color:tf.dept==='전체'?'var(--brown)':'#888',fontSize:'10px',fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'},
+      onClick:()=>{S.todayFilter.dept='전체';render();}},'전체 '+filteredMembers.length+'명'));
+    depts.forEach(d=>{
+      const cnt=filteredMembers.filter(m=>m.dept===d).length;
+      deptRow.append(h('button',{style:{padding:'5px 10px',borderRadius:'7px',border:tf.dept===d?'2px solid var(--gold)':'1px solid #eee',background:tf.dept===d?'#fffde7':'#fafafa',color:tf.dept===d?'var(--brown)':'#888',fontSize:'10px',fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'},
+        onClick:()=>{S.todayFilter.dept=d;render();}},d+' '+cnt));
+    });
+    w.append(deptRow);
+  }
+  
+  // 필터 적용
+  const displayVotes=S.votes.filter(v=>{
+    if(tf.office!=='전체'&&v.office!==tf.office)return false;
+    if(tf.dept!=='전체'&&v.dept!==tf.dept)return false;
+    return true;
+  });
+
+  // 상태별 그룹핑 (필터 적용)
   const groups={};
   DAY_STATUS.forEach(ds=>{groups[ds.key]=[];});
   groups['미선택']=[];groups['부재']=[];
-  S.votes.forEach(v=>{
+  displayVotes.forEach(v=>{
     if(isAway(v.id,S.simTime)){groups['부재'].push(v);}
     else if(v.dayStatus){groups[v.dayStatus].push(v);}
     else{groups['미선택'].push(v);}
@@ -1137,9 +1172,10 @@ function rToday(root){
   });
   w.append(summary);
 
-  // 사무실별로 표시
-  OFFICES.forEach(office=>{
-    const offVotes=S.votes.filter(v=>v.office===office);
+  // 사무실별로 표시 (필터 적용)
+  const displayOffices=tf.office==='전체'?OFFICES:[tf.office];
+  displayOffices.forEach(office=>{
+    const offVotes=displayVotes.filter(v=>v.office===office);
     w.append(h('div',{className:'office-hdr '+(office==='강남'?'seoul':'incheon')},
       '🏢 '+office+'사무실',h('span',{className:'count'},offVotes.length+'명')));
     
@@ -1380,6 +1416,201 @@ function rChat(root){
     row.append(h('div',{className:cls},msg.text));row.append(h('div',{style:{fontSize:'9px',color:'#999',whiteSpace:'nowrap',paddingBottom:'1px'}},msg.time));
     body.append(row);wrap.append(body);area.append(wrap);});
   root.append(area);setTimeout(()=>{area.scrollTop=area.scrollHeight;},10);
+}
+
+// ── DOGEUP (도급직 월별 캘린더) ──
+function rDogeup(root){
+  const w=h('div',{style:{padding:'11px'}});
+  const dogeupMembers=getMembers().filter(m=>m.type==='도급직');
+  const yr=S.dogeupYear,mo=S.dogeupMonth;
+  const daysInMonth=new Date(yr,mo+1,0).getDate();
+  const moLabel=(mo+1)+'월';
+  const dayNames=['일','월','화','수','목','금','토'];
+  
+  // 헤더
+  w.append(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}},
+    h('button',{className:'btn',style:{padding:'8px 14px',background:'#f5f5f5',color:'#555',borderRadius:'9px',fontSize:'13px'},onClick:()=>{S.dogeupMonth--;if(S.dogeupMonth<0){S.dogeupMonth=11;S.dogeupYear--;}render();}},'◀'),
+    h('div',{style:{fontSize:'16px',fontWeight:900,color:'var(--brown)'}},yr+'년 '+moLabel+' 도급직 근태'),
+    h('button',{className:'btn',style:{padding:'8px 14px',background:'#f5f5f5',color:'#555',borderRadius:'9px',fontSize:'13px'},onClick:()=>{S.dogeupMonth++;if(S.dogeupMonth>11){S.dogeupMonth=0;S.dogeupYear++;}render();}},'▶')
+  ));
+  
+  if(!dogeupMembers.length){
+    w.append(h('div',{style:{background:'white',borderRadius:'14px',padding:'40px',textAlign:'center',color:'#ccc'}},'도급직 직원이 없습니다'));
+    root.append(w);return;
+  }
+  
+  // 캘린더 테이블
+  const tableWrap=h('div',{style:{overflowX:'auto',background:'white',borderRadius:'14px',boxShadow:'0 1px 3px rgba(0,0,0,0.05)',marginBottom:'12px'}});
+  const table=h('div',{style:{minWidth:(daysInMonth*42+120)+'px'}});
+  
+  // 날짜 헤더행
+  const hdrRow=h('div',{style:{display:'flex',borderBottom:'2px solid #003B7B',position:'sticky',top:0,background:'#003B7B',zIndex:5}});
+  hdrRow.append(h('div',{style:{width:'60px',minWidth:'60px',padding:'6px 4px',fontSize:'9px',fontWeight:700,color:'white',textAlign:'center'}},'이름'));
+  hdrRow.append(h('div',{style:{width:'36px',minWidth:'36px',padding:'6px 2px',fontSize:'9px',fontWeight:700,color:'white',textAlign:'center'}},'구분'));
+  for(let d=1;d<=daysInMonth;d++){
+    const dt=new Date(yr,mo,d);
+    const off=isOffDay(dt);const hol=isHoliday(dt);const weekend=isWeekend(dt);
+    hdrRow.append(h('div',{style:{width:'40px',minWidth:'40px',padding:'4px 2px',fontSize:'8px',fontWeight:700,textAlign:'center',
+      color:hol?'#fff':weekend?'#ffcdd2':'#90caf9',
+      background:hol?'#c62828':weekend?'#37474f':'#003B7B'}},
+      d+'\n'+dayNames[dt.getDay()]+(hol?'\n'+getHolidayName(dt).slice(0,2):'')
+    ));
+  }
+  table.append(hdrRow);
+  
+  // 각 도급직 직원 (2행씩: 출근/퇴근)
+  dogeupMembers.forEach((m,mi)=>{
+    const dgKey='dogeup_'+yr+'_'+(mo+1)+'_'+m.id;
+    const saved=JSON.parse(localStorage.getItem(dgKey)||'{}');
+    
+    ['출근','퇴근'].forEach((label,li)=>{
+      const row=h('div',{style:{display:'flex',borderBottom:'1px solid '+(li===1?'#e0e0e0':'#f5f5f5'),background:mi%2===0?'white':'#fafafa'}});
+      if(li===0){
+        row.append(h('div',{style:{width:'60px',minWidth:'60px',padding:'8px 4px',fontSize:'10px',fontWeight:800,textAlign:'center',borderRight:'1px solid #eee',display:'flex',alignItems:'center',justifyContent:'center'}},m.name));
+      } else {
+        row.append(h('div',{style:{width:'60px',minWidth:'60px',borderRight:'1px solid #eee'}}));
+      }
+      row.append(h('div',{style:{width:'36px',minWidth:'36px',padding:'6px 2px',fontSize:'9px',fontWeight:600,textAlign:'center',color:li===0?'#2e7d32':'#1565c0',borderRight:'1px solid #eee'}},label));
+      
+      for(let d=1;d<=daysInMonth;d++){
+        const dt=new Date(yr,mo,d);
+        const off=isOffDay(dt);const hol=isHoliday(dt);const weekend=isWeekend(dt);
+        const cellKey=d+'_'+(li===0?'in':'out');
+        const val=saved[cellKey]||'';
+        
+        const cell=h('div',{style:{width:'40px',minWidth:'40px',padding:'2px',background:hol?'#ffebee':weekend?'#f5f5f5':'transparent',position:'relative'}});
+        
+        if(off&&!val){
+          // 공휴일/주말 빈칸
+          cell.append(h('div',{style:{width:'100%',height:'28px',borderRadius:'4px',background:hol?'#ffcdd2':'#eeeeee',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'7px',color:hol?'#c62828':'#bbb'}},hol?getHolidayName(dt).slice(0,2):''));
+        } else {
+          // 입력 필드
+          const inp=h('input',{style:{width:'100%',height:'28px',border:'1px solid '+(val?'#c8e6c9':'#e0e0e0'),borderRadius:'4px',fontSize:'9px',textAlign:'center',outline:'none',fontFamily:'inherit',background:val?'#e8f5e9':'white',padding:'0 1px'},
+            value:val,placeholder:off?'':'—',
+            onInput:e=>{
+              const newVal=e.target.value;
+              const data=JSON.parse(localStorage.getItem(dgKey)||'{}');
+              data[cellKey]=newVal;
+              localStorage.setItem(dgKey,JSON.stringify(data));
+              // Firebase 저장
+              db.ref('dogeup/'+yr+'_'+(mo+1)+'/'+m.id+'/'+cellKey).set(newVal);
+            },
+            onFocus:e=>{e.target.style.borderColor='#003B7B';e.target.style.background='#E3F2FD';},
+            onBlur:e=>{e.target.style.borderColor=e.target.value?'#c8e6c9':'#e0e0e0';e.target.style.background=e.target.value?'#e8f5e9':'white';}
+          });
+          cell.append(inp);
+        }
+        row.append(cell);
+      }
+      table.append(row);
+    });
+  });
+  tableWrap.append(table);
+  w.append(tableWrap);
+  
+  // 도움말
+  w.append(h('div',{style:{fontSize:'10px',color:'#999',marginBottom:'10px',lineHeight:'1.6'}},
+    '💡 출근/퇴근 시간 직접 입력 (예: 8:30, 17:30)\n연차는 "연" 입력, 반차는 "오전반" 등 자유 입력'));
+  
+  // 엑셀 다운로드
+  w.append(h('button',{className:'btn btn-brown btn-full',style:{marginBottom:'6px'},onClick:()=>dlDogeupExcel()},'📥 도급직 근태현황표 다운로드'));
+  
+  // Firebase에서 데이터 로드 (최초 1회)
+  dogeupMembers.forEach(m=>{
+    const dgKey='dogeup_'+yr+'_'+(mo+1)+'_'+m.id;
+    if(!localStorage.getItem(dgKey+'_fbLoaded')){
+      db.ref('dogeup/'+yr+'_'+(mo+1)+'/'+m.id).once('value',snap=>{
+        const fbData=snap.val();
+        if(fbData){
+          localStorage.setItem(dgKey,JSON.stringify(fbData));
+          localStorage.setItem(dgKey+'_fbLoaded','1');
+          render();
+        }
+      });
+    }
+  });
+  
+  root.append(w);
+}
+
+// 도급직 엑셀 다운로드
+async function dlDogeupExcel(){
+  const yr=S.dogeupYear,mo=S.dogeupMonth;
+  const moLabel=(mo+1)+'월';
+  const dogeupMembers=getMembers().filter(m=>m.type==='도급직');
+  const daysInMonth=new Date(yr,mo+1,0).getDate();
+  const dayNames=['일','월','화','수','목','금','토'];
+  
+  try{
+    const resp=await fetch('./개발팀_도급직__근태현황표.xlsx');
+    if(!resp.ok)throw new Error('no file');
+    const buf=await resp.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array',cellStyles:true,cellNF:true});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    
+    // 제목 업데이트
+    setCellStr(ws,0,3,moLabel+' 개발팀 근태 현황표('+yr+')');
+    
+    // 날짜 헤더 (R5, C4~C34)
+    for(let d=1;d<=daysInMonth;d++){
+      setCellNum(ws,4,3+d-1,d);
+    }
+    
+    // 각 도급직 데이터 (R6부터, 2행씩)
+    dogeupMembers.forEach((m,mi)=>{
+      const baseRow=5+mi*2;
+      const dgKey='dogeup_'+yr+'_'+(mo+1)+'_'+m.id;
+      const saved=JSON.parse(localStorage.getItem(dgKey)||'{}');
+      
+      setCellStr(ws,baseRow,1,m.name);
+      setCellStr(ws,baseRow,2,'출근');
+      setCellStr(ws,baseRow+1,2,'퇴근');
+      
+      for(let d=1;d<=daysInMonth;d++){
+        const dt=new Date(yr,mo,d);
+        const col=3+d-1;
+        const inVal=saved[d+'_in']||'';
+        const outVal=saved[d+'_out']||'';
+        
+        if(isHoliday(dt)){
+          setCellStr(ws,baseRow,col,getHolidayName(dt));
+        } else if(isWeekend(dt)){
+          // 주말 빈칸
+        } else {
+          if(inVal)setCellStr(ws,baseRow,col,inVal);
+          if(outVal)setCellStr(ws,baseRow+1,col,outVal);
+        }
+      }
+    });
+    
+    ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:5+dogeupMembers.length*2+2,c:3+daysInMonth}});
+    XLSX.writeFile(wb,'도급직_근태_'+yr+'년'+moLabel+'.xlsx',{bookSST:true,bookType:'xlsx'});
+  }catch(e){
+    // CSV 폴백
+    let csv="\uFEFF"+moLabel+' 개발팀 근태 현황표('+yr+')\n';
+    csv+='이름,구분';
+    for(let d=1;d<=daysInMonth;d++){
+      const dt=new Date(yr,mo,d);
+      csv+=','+d+'('+dayNames[dt.getDay()]+')';
+    }
+    csv+='\n';
+    dogeupMembers.forEach(m=>{
+      const dgKey='dogeup_'+yr+'_'+(mo+1)+'_'+m.id;
+      const saved=JSON.parse(localStorage.getItem(dgKey)||'{}');
+      ['출근','퇴근'].forEach((label,li)=>{
+        csv+=m.name+','+label;
+        for(let d=1;d<=daysInMonth;d++){
+          const dt=new Date(yr,mo,d);
+          const val=saved[d+'_'+(li===0?'in':'out')]||'';
+          if(isHoliday(dt)&&li===0)csv+=','+getHolidayName(dt);
+          else csv+=','+val;
+        }
+        csv+='\n';
+      });
+    });
+    const b=new Blob([csv],{type:"text/csv;charset=utf-8;"}),a=document.createElement("a");
+    a.href=URL.createObjectURL(b);a.download='도급직_근태_'+yr+'년'+moLabel+'.csv';a.click();
+  }
 }
 
 // ── AWAY ──
