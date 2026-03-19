@@ -301,6 +301,7 @@ let S={
   editing:false,
   etcOpen:false,
   todayEtcOpen:false,
+  showPastAway:false,
   todayFilter:{office:null,dept:'전체'}, // 오늘 탭 필터
   dogeupMonth:new Date().getMonth(), // 도급직 탭 월 (0=1월)
   dogeupYear:new Date().getFullYear(),
@@ -573,7 +574,12 @@ function confirmVote(){
   if(!p.dayStatus){alert('근무 상태를 선택해주세요!');return;}
   const opt=DAY_STATUS.find(o=>o.key===p.dayStatus);
   const needClock=!opt?.exempt||p.dayStatus==='오후반차'||p.dayStatus==='주말출근'||p.dayStatus==='외근'||p.dayStatus==='직출';
-  if(needClock&&!p.clockIn){alert('출근 시간을 선택해주세요!');return;}
+  // 오전반차: 출근 불필요, 퇴근 필요
+  if(p.dayStatus==='오전반차'&&!p.clockOut){alert('퇴근 시간을 선택해주세요!');return;}
+  // 오후반차: 출근 필요, 퇴근 불필요
+  if(p.dayStatus==='오후반차'&&!p.clockIn){alert('출근 시간을 선택해주세요!');return;}
+  // 일반: 출근 필요
+  if(needClock&&p.dayStatus!=='오전반차'&&p.dayStatus!=='오후반차'&&!p.clockIn){alert('출근 시간을 선택해주세요!');return;}
   S.votes=S.votes.map(v=>v.id===S.user.id?{...v,dayStatus:p.dayStatus,clockIn:p.clockIn,clockOut:p.clockOut,confirmed:true,reason:p.reason,location:p.location}:v);
   let msg="오늘: "+p.dayStatus;
   if(p.reason)msg+="\n사유: "+p.reason;
@@ -766,11 +772,12 @@ async function dlWeekly(officeFilter){
         weekDates.forEach((wd,di)=>{
           const col=3+di;
           const wdDate=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate());
-          if(wdDate>=todayDate){
-            // 오늘 이후는 빈칸
-          } else if(isAway(v.id,wd)){
+          // 부재는 날짜 무관하게 항상 표시
+          if(isAway(v.id,wd)){
             const ai=getAway(v.id,wd);
             setCellStr(ws,row,col,ai?.type||'부재');
+          } else if(wdDate>=todayDate){
+            // 오늘 이후는 빈칸
           } else if(isOffDay(wd)){
             // 주말/공휴일 비움
           } else {
@@ -1311,7 +1318,11 @@ function rVote(root,mv,awayMe,exemptMe){
   // 면제 안내
   if(p.dayStatus){
     const opt=DAY_STATUS.find(o=>o.key===p.dayStatus);
-    if(opt?.exempt){
+    if(p.dayStatus==='오전반차'){
+      root.append(h('div',{className:'ds-exempt'},h('b',null,'🌅 오전반차 — 출근 투표 면제'),h('div',{style:{fontSize:'10px',marginTop:'2px'}},'퇴근 시간만 선택해주세요.')));
+    } else if(p.dayStatus==='오후반차'){
+      root.append(h('div',{className:'ds-exempt'},h('b',null,'🌇 오후반차 — 퇴근 투표 면제'),h('div',{style:{fontSize:'10px',marginTop:'2px'}},'출근 시간만 선택해주세요.')));
+    } else if(opt?.exempt){
       root.append(h('div',{className:'ds-exempt'},h('b',null,opt.icon+' '+p.dayStatus+' — 출근 투표 면제'),h('div',{style:{fontSize:'10px',marginTop:'2px'}},'확인 버튼을 눌러 확정해주세요.')));
     }
   }
@@ -1346,10 +1357,14 @@ function rVote(root,mv,awayMe,exemptMe){
   }
 
   const needCI=!selOpt?.exempt||p.dayStatus==='오후반차'||p.dayStatus==='주말출근'||p.dayStatus==='외근'||p.dayStatus==='직출';
-  if(needCI&&p.dayStatus){
+  const needCO=p.dayStatus!=='오후반차'; // 오후반차는 퇴근 투표 불필요
+  const showCI=p.dayStatus==='오전반차'?false:needCI; // 오전반차는 출근 투표 불필요
+  const showCO=p.dayStatus==='오전반차'?true:needCO; // 오전반차는 퇴근 투표 필요
+  
+  if(showCI&&p.dayStatus){
     root.append(mkPendingPoll("======== 출근 =========",fmtD(S.simTime),"복수선택",CLOCK_IN,p.clockIn,t=>{S.pending.clockIn=t;render();}));
   }
-  if(p.dayStatus){
+  if(showCO&&p.dayStatus){
     root.append(mkPendingPoll("======== 퇴근 =========",null,null,CLOCK_OUT,p.clockOut,t=>{S.pending.clockOut=t;render();}));
   }
 
@@ -1627,23 +1642,58 @@ async function dlDogeupExcel(){
 function rAway(root){
   const w=h('div',{style:{padding:'11px'}});
   w.append(h('button',{className:'btn btn-brown btn-full',style:{marginBottom:'12px'},onClick:()=>{S.modal='away';render();}},'✈️ 부재 기간 등록'));
-  w.append(h('div',{style:{fontSize:'12px',fontWeight:800,color:'#555',marginBottom:'7px'}},'등록 '+S.awayPeriods.length+'건'));
-  if(!S.awayPeriods.length)w.append(h('div',{className:'away-card',style:{textAlign:'center',color:'#ccc',padding:'35px'}},'없음'));
-  S.awayPeriods.forEach(a=>{
-    const m=MEMBERS.find(c=>c.id===a.memberId),active=inRange(S.simTime,parseD(a.from),parseD(a.to));
-    const card=h('div',{className:'away-card'+(active?' active':'')});
-    if(active)card.append(h('span',{style:{display:'inline-block',padding:'2px 7px',borderRadius:'4px',fontSize:'9px',fontWeight:800,background:'#e3f2fd',color:'#1565c0',position:'absolute',top:'9px',right:'11px'}},'진행중·면제'));
-    const icon=a.type==='해외출장'?'✈️':a.type==='연차'?'🏖️':a.type==='병가'?'🏥':'📋';
-    card.append(h('div',{style:{display:'flex',alignItems:'center',gap:'7px',marginBottom:'5px'}},h('span',{style:{fontSize:'18px'}},icon),h('div',null,
-      h('div',{style:{fontWeight:800,fontSize:'13px',display:'flex',alignItems:'center',gap:'4px'}},m?.name,h('span',{className:'office-badge '+(m?.office==='강남'?'seoul':'incheon')},m?.office)),
-      h('span',{style:{fontSize:'11px',color:'#999'}},m?.dept))));
-    card.append(h('div',{style:{fontSize:'12px',color:'#333'}},h('b',null,a.type),h('span',{style:{color:'#999',marginLeft:'7px'}},a.from+' ~ '+a.to)));
-    if(a.memo)card.append(h('div',{style:{fontSize:'11px',color:'#888',background:'#f9f9f9',padding:'5px 9px',borderRadius:'7px',marginTop:'5px'}},'📝 '+a.memo));
-    const bottom=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'7px'}});
-    bottom.append(h('span',{style:{fontSize:'10px',color:'#bbb'}},'등록: '+a.registeredBy));
-    bottom.append(h('button',{className:'btn',style:{background:'#ffebee',color:'#c62828',fontSize:'10px',padding:'3px 10px'},onClick:()=>deleteAway(a.id)},'삭제'));
-    card.append(bottom);w.append(card);});
+  
+  const today=new Date(S.simTime.getFullYear(),S.simTime.getMonth(),S.simTime.getDate());
+  // 진행중/예정 부재 (종료일이 오늘 이후)
+  const currentAway=S.awayPeriods.filter(a=>parseD(a.to)>=today);
+  // 지난 부재 (종료일이 오늘 이전)
+  const pastAway=S.awayPeriods.filter(a=>parseD(a.to)<today);
+  
+  // ── 진행중/예정 부재 ──
+  w.append(h('div',{style:{fontSize:'13px',fontWeight:800,color:'var(--brown)',marginBottom:'7px'}},'📌 진행중 / 예정 부재 ('+currentAway.length+'건)'));
+  if(!currentAway.length)w.append(h('div',{className:'away-card',style:{textAlign:'center',color:'#ccc',padding:'25px'}},'등록된 부재가 없습니다'));
+  currentAway.forEach(a=>{
+    renderAwayCard(w,a,true);
+  });
+  
+  // ── 지난 부재기간 ──
+  if(pastAway.length){
+    w.append(h('div',{style:{marginTop:'16px'}}));
+    const pastBtn=h('button',{style:{width:'100%',padding:'11px',borderRadius:'10px',border:'1px solid #ddd',background:S.showPastAway?'#f5f5f5':'white',color:'#888',fontSize:'12px',fontWeight:700,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',gap:'6px'},
+      onClick:()=>{S.showPastAway=!S.showPastAway;render();}},
+      h('span',null,'📂 지난 부재기간 ('+pastAway.length+'건)'),
+      h('span',{style:{fontSize:'10px'}},S.showPastAway?'▲':'▼')
+    );
+    w.append(pastBtn);
+    
+    if(S.showPastAway){
+      pastAway.sort((a,b)=>parseD(b.to)-parseD(a.to)); // 최신순
+      pastAway.forEach(a=>{
+        renderAwayCard(w,a,false);
+      });
+    }
+  }
+  
   root.append(w);
+}
+function renderAwayCard(parent,a,showDelete){
+  const m=getMembers().find(c=>c.id===a.memberId);
+  const today=new Date(S.simTime.getFullYear(),S.simTime.getMonth(),S.simTime.getDate());
+  const active=inRange(S.simTime,parseD(a.from),parseD(a.to));
+  const isPast=parseD(a.to)<today;
+  const card=h('div',{className:'away-card'+(active?' active':''),style:{opacity:isPast?'0.6':'1'}});
+  if(active)card.append(h('span',{style:{display:'inline-block',padding:'2px 7px',borderRadius:'4px',fontSize:'9px',fontWeight:800,background:'#e3f2fd',color:'#1565c0',position:'absolute',top:'9px',right:'11px'}},'진행중·면제'));
+  if(isPast)card.append(h('span',{style:{display:'inline-block',padding:'2px 7px',borderRadius:'4px',fontSize:'9px',fontWeight:800,background:'#f5f5f5',color:'#999',position:'absolute',top:'9px',right:'11px'}},'종료'));
+  const icon=a.type==='해외출장'?'✈️':a.type==='연차'?'🏖️':a.type==='병가'?'🏥':'📋';
+  card.append(h('div',{style:{display:'flex',alignItems:'center',gap:'7px',marginBottom:'5px'}},h('span',{style:{fontSize:'18px'}},icon),h('div',null,
+    h('div',{style:{fontWeight:800,fontSize:'13px',display:'flex',alignItems:'center',gap:'4px'}},m?.name||'알수없음',h('span',{className:'office-badge '+(m?.office==='강남'?'seoul':'incheon')},m?.office||'')),
+    h('span',{style:{fontSize:'11px',color:'#999'}},m?.dept||''))));
+  card.append(h('div',{style:{fontSize:'12px',color:'#333'}},h('b',null,a.type),h('span',{style:{color:'#999',marginLeft:'7px'}},a.from+' ~ '+a.to)));
+  if(a.memo)card.append(h('div',{style:{fontSize:'11px',color:'#888',background:'#f9f9f9',padding:'5px 9px',borderRadius:'7px',marginTop:'5px'}},'📝 '+a.memo));
+  const bottom=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'7px'}});
+  bottom.append(h('span',{style:{fontSize:'10px',color:'#bbb'}},'등록: '+(a.registeredBy||'')));
+  if(showDelete)bottom.append(h('button',{className:'btn',style:{background:'#ffebee',color:'#c62828',fontSize:'10px',padding:'3px 10px'},onClick:()=>deleteAway(a.id)},'삭제'));
+  card.append(bottom);parent.append(card);
 }
 
 // ── STATUS ──
@@ -1732,63 +1782,72 @@ function rStatus(root){
     w.append(table);
   });
 
-  // ── 주간 연장근무 미리보기 ──
+  // ── 주간 연장근무 미리보기 (사무실별) ──
   const weekDates=getWeekDates(S.simTime);
   const dayLabels=['월','화','수','목','금','토','일'];
   w.append(h('div',{style:{margin:'14px 0 6px',fontSize:'14px',fontWeight:900,color:'var(--brown)'}},'⏱️ 주간 연장근무 ('+getWeekLabel(S.simTime)+')'));
   
-  // 요일 헤더 (공휴일/주말 표시)
-  const weekHdr=h('div',{style:{display:'flex',gap:'2px',marginBottom:'4px'}});
-  weekHdr.append(h('div',{style:{width:'60px',fontSize:'9px',fontWeight:700,color:'#888'}},'이름'));
-  weekDates.forEach((wd,i)=>{
-    const off=isOffDay(wd);const hol=isHoliday(wd);
-    weekHdr.append(h('div',{style:{flex:1,textAlign:'center',fontSize:'9px',fontWeight:700,
-      color:hol?'#c62828':off?'#999':'#333',
-      background:hol?'#ffebee':off?'#f5f5f5':'transparent',
-      borderRadius:'4px',padding:'2px 0'}},
-      dayLabels[i],
-      hol?h('div',{style:{fontSize:'7px',color:'#c62828'}},getHolidayName(wd).slice(0,3)):null
-    ));
-  });
-  weekHdr.append(h('div',{style:{width:'36px',textAlign:'center',fontSize:'9px',fontWeight:800,color:'#E65100'}},'합계'));
-  w.append(weekHdr);
-  
-  // 정규직만
-  const otFiltered=filtered.filter(v=>v.type==='정규');
-  const weekBox=h('div',{style:{background:'white',borderRadius:'12px',overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.05)',marginBottom:'12px',maxHeight:'200px',overflowY:'auto'}});
-  otFiltered.forEach(v=>{
-    const r=h('div',{style:{display:'flex',gap:'2px',padding:'6px 4px',borderBottom:'1px solid #f5f5f5',alignItems:'center'}});
-    r.append(h('div',{style:{width:'60px',fontSize:'10px',fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},v.name));
-    let weekTotal=0;
-    const todayDate=new Date(S.simTime.getFullYear(),S.simTime.getMonth(),S.simTime.getDate());
-    weekDates.forEach(wd=>{
+  const weekOffices=S.officeFilter==='전체'?OFFICES:[S.officeFilter];
+  weekOffices.forEach(office=>{
+    const offVotes=filtered.filter(v=>v.office===office&&v.type==='정규');
+    if(!offVotes.length)return;
+    
+    // 사무실 헤더
+    w.append(h('div',{className:'office-hdr '+(office==='강남'?'seoul':'incheon'),style:{margin:'10px 0 4px'}},
+      '🏢 '+office,h('span',{className:'count'},offVotes.length+'명')));
+    
+    // 요일 헤더
+    const weekHdr=h('div',{style:{display:'flex',gap:'2px',marginBottom:'4px'}});
+    weekHdr.append(h('div',{style:{width:'60px',fontSize:'9px',fontWeight:700,color:'#888'}},'이름'));
+    weekDates.forEach((wd,i)=>{
       const off=isOffDay(wd);const hol=isHoliday(wd);
-      const dk=dateKey(wd),prevDk=dateKey(getPrevWorkday(S.simTime));
-      const wdDate=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate());
-      let val='';let valColor='#ccc';
-      if(wdDate>=todayDate){val='';}
-      else if(isAway(v.id,wd)){val='부재';valColor='#1565c0';}
-      else if(off){val='';}
-      else if(dk===prevDk){
-        const ds=v.dayStatus;
-        const ot=calcOvertime(v.clockIn,v.clockOut);
-        if(ds&&ds!=='출근'){val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';}
-        else if(ot>0){val=String(ot);weekTotal+=ot;valColor='#E65100';}
-        else{val='0';}
-      }
-      else{const dayRec=localStorage.getItem('day_'+dk);if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(rr=>rr.id===v.id);if(rec){
-        const ds=rec.dayStatus;
-        if(ds&&ds!=='출근'){val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';}
-        else{const rot=rec.overtime||0;val=String(rot);weekTotal+=rot;valColor=rot>0?'#E65100':'#ccc';}
-      }}else val='';}
-      r.append(h('div',{style:{flex:1,textAlign:'center',fontSize:val.length>2?'8px':'10px',fontWeight:val&&val!=='0'?700:400,
-        color:valColor,
-        background:hol?'#ffebee':off?'#f5f5f5':wdDate>=todayDate?'#f9f9f9':'transparent',borderRadius:'3px',padding:'2px 0'}},val||'—'));
+      weekHdr.append(h('div',{style:{flex:1,textAlign:'center',fontSize:'9px',fontWeight:700,
+        color:hol?'#c62828':off?'#999':'#333',
+        background:hol?'#ffebee':off?'#f5f5f5':'transparent',
+        borderRadius:'4px',padding:'2px 0'}},
+        dayLabels[i],
+        hol?h('div',{style:{fontSize:'7px',color:'#c62828'}},getHolidayName(wd).slice(0,3)):null
+      ));
     });
-    r.append(h('div',{style:{width:'36px',textAlign:'center',fontSize:'11px',fontWeight:900,color:weekTotal>12?'#c62828':weekTotal>0?'#E65100':'#ccc'}},weekTotal>0?String(weekTotal):'—'));
-    weekBox.append(r);
+    weekHdr.append(h('div',{style:{width:'36px',textAlign:'center',fontSize:'9px',fontWeight:800,color:'#E65100'}},'합계'));
+    w.append(weekHdr);
+    
+    // 직원 데이터
+    const weekBox=h('div',{style:{background:'white',borderRadius:'12px',overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.05)',marginBottom:'12px',maxHeight:'200px',overflowY:'auto'}});
+    offVotes.forEach(v=>{
+      const r=h('div',{style:{display:'flex',gap:'2px',padding:'6px 4px',borderBottom:'1px solid #f5f5f5',alignItems:'center'}});
+      r.append(h('div',{style:{width:'60px',fontSize:'10px',fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},v.name));
+      let weekTotal=0;
+      const todayDate=new Date(S.simTime.getFullYear(),S.simTime.getMonth(),S.simTime.getDate());
+      weekDates.forEach(wd=>{
+        const off=isOffDay(wd);const hol=isHoliday(wd);
+        const dk=dateKey(wd),prevDk=dateKey(getPrevWorkday(S.simTime));
+        const wdDate=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate());
+        let val='';let valColor='#ccc';
+        if(isAway(v.id,wd)){const awInfo=getAway(v.id,wd);const awType=awInfo?.type||'부재';val=awType.length>3?awType.slice(0,3):awType;valColor='#1565c0';}
+        else if(wdDate>=todayDate){val='';}
+        else if(off){val='';}
+        else if(dk===prevDk){
+          const ds=v.dayStatus;
+          const ot=calcOvertime(v.clockIn,v.clockOut);
+          if(ds&&ds!=='출근'){val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';}
+          else if(ot>0){val=String(ot);weekTotal+=ot;valColor='#E65100';}
+          else{val='0';}
+        }
+        else{const dayRec=localStorage.getItem('day_'+dk);if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(rr=>rr.id===v.id);if(rec){
+          const ds=rec.dayStatus;
+          if(ds&&ds!=='출근'){val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';}
+          else{const rot=rec.overtime||0;val=String(rot);weekTotal+=rot;valColor=rot>0?'#E65100':'#ccc';}
+        }}else val='';}
+        r.append(h('div',{style:{flex:1,textAlign:'center',fontSize:val.length>2?'8px':'10px',fontWeight:val&&val!=='0'?700:400,
+          color:valColor,
+          background:hol?'#ffebee':off?'#f5f5f5':wdDate>=todayDate?'#f9f9f9':'transparent',borderRadius:'3px',padding:'2px 0'}},val||'—'));
+      });
+      r.append(h('div',{style:{width:'36px',textAlign:'center',fontSize:'11px',fontWeight:900,color:weekTotal>12?'#c62828':weekTotal>0?'#E65100':'#ccc'}},weekTotal>0?String(weekTotal):'—'));
+      weekBox.append(r);
+    });
+    w.append(weekBox);
   });
-  w.append(weekBox);
   
   // ── 다운로드 버튼 (일일근태 / 주 연장근무 따로) ──
   w.append(h('div',{style:{fontSize:'12px',fontWeight:800,color:'var(--brown)',margin:'14px 0 6px'}},'📥 일일근태 다운로드'));
