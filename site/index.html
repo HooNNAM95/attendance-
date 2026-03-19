@@ -170,7 +170,7 @@ const MEMBERS=[
   {id:"SD13",name:"이종훈",dept:"개발2팀",part:"제품개발P",rank:"팀원",type:"정규",office:"송도",junior:false},
   {id:"SD14",name:"김동련",dept:"제어파트",part:"제어P",rank:"팀원",type:"정규",office:"송도",junior:false},
   {id:"SD15",name:"심효정",dept:"제어파트",part:"제어P",rank:"팀원",type:"정규",office:"송도",junior:false},
-  // ══ 도급직은 별도 관리 (관리자 > 👷 도급직 명단 관리) ══
+  // ══ 작업자은 별도 관리 (관리자 > 👷 작업자 명단 관리) ══
 ];
 const OFFICES=["강남","송도"];
 const CLOCK_IN=["8:30","10:00","10:30","11:00","13:30"];
@@ -286,7 +286,7 @@ let S={
   awayPeriods:JSON.parse(localStorage.getItem('away')||'[]'),
   chatLog:[],
   running:false,modal:null,
-  awayForm:{memberId:"GN01",type:"해외출장",from:"2026-03-17",to:"2026-03-21",memo:""},
+  awayForm:{memberId:"GN01",type:"해외출장",from:"",to:"",memo:""},
   weekendForm:{dates:"",memo:""},
   notifOk:typeof Notification!=='undefined'&&Notification.permission==="granted",notifDismissed:false,
   editing:false,
@@ -294,7 +294,7 @@ let S={
   todayEtcOpen:false,
   showPastAway:false,
   todayFilter:{office:null,dept:'전체'}, // 오늘 탭 필터
-  dogeupMonth:new Date().getMonth(), // 도급직 탭 월 (0=1월)
+  dogeupMonth:new Date().getMonth(), // 작업자 탭 월 (0=1월)
   dogeupYear:new Date().getFullYear(),
   historyView:null,
   // Admin
@@ -400,7 +400,7 @@ function officeBg(o){return o==='강남'?'#E3F2FD':'#E0F2F1';}
 
 // ═══ 관리자 — 직원 관리 ═══
 const ADMIN_PW='jysol';
-// ═══ 도급직 명단 관리 (이름만) ═══
+// ═══ 작업자 명단 관리 (이름만) ═══
 const DEFAULT_DOGEUP_NAMES=['장정금','손수민','안민아','김선우','이주현','박은자','고정윤','민미정','김현지'];
 function loadDogeupNames(){
   const saved=localStorage.getItem('dogeupNames');
@@ -423,10 +423,10 @@ function deleteDogeupName(name){
   const list=loadDogeupNames().filter(n=>n!==name);
   saveDogeupNames(list);render();
 }
-const DATA_VERSION='v6_dogeup_final';
+const DATA_VERSION='v7_worker_rename';
 function loadMembers(){
   const ver=localStorage.getItem('members_ver');
-  if(ver!==DATA_VERSION){localStorage.removeItem('members');localStorage.setItem('members_ver',DATA_VERSION);}
+  if(ver!==DATA_VERSION){localStorage.removeItem('members');localStorage.removeItem('away');localStorage.setItem('members_ver',DATA_VERSION);}
   const saved=localStorage.getItem('members');
   if(saved){const parsed=JSON.parse(saved);if(parsed.length)return parsed;}
   return MEMBERS;
@@ -1072,11 +1072,11 @@ function rAdmin(root){
     }},'📥 현재 명단 CSV 다운로드')
   ));
 
-  // ═══ 도급직 명단 관리 ═══
+  // ═══ 작업자 명단 관리 ═══
   const dgNames=getDogeupNames();
   const dgBox=h('div',{style:{marginTop:'20px',background:'white',borderRadius:'16px',padding:'20px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}});
-  dgBox.append(h('div',{style:{fontSize:'14px',fontWeight:800,marginBottom:'4px',color:'#E65100'}},'👷 도급직 명단 관리'));
-  dgBox.append(h('div',{style:{fontSize:'11px',color:'#999',marginBottom:'14px'}},'이름만 관리합니다 (사번, 팀 없음). 도급직 탭 캘린더에 반영됩니다.'));
+  dgBox.append(h('div',{style:{fontSize:'14px',fontWeight:800,marginBottom:'4px',color:'#E65100'}},'👷 작업자 명단 관리'));
+  dgBox.append(h('div',{style:{fontSize:'11px',color:'#999',marginBottom:'14px'}},'이름만 관리합니다 (사번, 팀 없음). 작업자 탭 캘린더에 반영됩니다.'));
   
   const dgAddRow=h('div',{style:{display:'flex',gap:'6px',marginBottom:'14px'}});
   const dgInput=h('input',{style:{flex:1,padding:'10px 13px',borderRadius:'9px',border:'2px solid #e5e5e5',fontSize:'13px',outline:'none',fontFamily:'inherit'},
@@ -1130,7 +1130,7 @@ function rMain(root){
       h('button',{style:{background:'rgba(0,0,0,0.08)',border:'none',borderRadius:'5px',padding:'4px 9px',fontSize:'11px',fontWeight:700,color:'#666',cursor:'pointer',fontFamily:'inherit'},onClick:()=>{S.screen="auth";S.user=null;render();}},'나가기'))
   ));
   const tabs=h('div',{className:'tabs'});
-  [{k:'vote',l:'📋 투표'},{k:'today',l:'🏢 오늘'},{k:'away',l:'✈️ 부재'},{k:'dogeup',l:'👷 도급직'},{k:'status',l:'📊 현황'},{k:'history',l:'📁 기록'}].forEach(t=>tabs.append(h('button',{className:'tab'+(S.tab===t.k?' on':''),onClick:()=>{S.tab=t.k;render();}},t.l)));
+  [{k:'vote',l:'📋 투표'},{k:'today',l:'🏢 오늘'},{k:'away',l:'✈️ 부재'},{k:'dogeup',l:'👷 작업자'},{k:'status',l:'📊 현황'},{k:'history',l:'📁 기록'}].forEach(t=>tabs.append(h('button',{className:'tab'+(S.tab===t.k?' on':''),onClick:()=>{S.tab=t.k;render();}},t.l)));
   root.append(tabs);
   const ct=h('div',{className:'content'});root.append(ct);
   if(S.tab==='vote')rVote(ct,mv,awayMe,exemptMe);
@@ -1530,7 +1530,7 @@ function rChat(root){
   root.append(area);setTimeout(()=>{area.scrollTop=area.scrollHeight;},10);
 }
 
-// ── DOGEUP (도급직 월별 캘린더) ──
+// ── DOGEUP (작업자 월별 캘린더) ──
 function rDogeup(root){
   const w=h('div',{style:{padding:'11px'}});
   const dogeupNames=getDogeupNames();
@@ -1542,12 +1542,12 @@ function rDogeup(root){
   // 헤더
   w.append(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}},
     h('button',{className:'btn',style:{padding:'8px 14px',background:'#f5f5f5',color:'#555',borderRadius:'9px',fontSize:'13px'},onClick:()=>{S.dogeupMonth--;if(S.dogeupMonth<0){S.dogeupMonth=11;S.dogeupYear--;}render();}},'◀'),
-    h('div',{style:{fontSize:'16px',fontWeight:900,color:'var(--brown)'}},yr+'년 '+moLabel+' 도급직 근태'),
+    h('div',{style:{fontSize:'16px',fontWeight:900,color:'var(--brown)'}},yr+'년 '+moLabel+' 작업자 근태'),
     h('button',{className:'btn',style:{padding:'8px 14px',background:'#f5f5f5',color:'#555',borderRadius:'9px',fontSize:'13px'},onClick:()=>{S.dogeupMonth++;if(S.dogeupMonth>11){S.dogeupMonth=0;S.dogeupYear++;}render();}},'▶')
   ));
   
   if(!dogeupNames.length){
-    w.append(h('div',{style:{background:'white',borderRadius:'14px',padding:'40px',textAlign:'center',color:'#ccc'}},'도급직 명단이 없습니다. 관리자에서 추가해주세요.'));
+    w.append(h('div',{style:{background:'white',borderRadius:'14px',padding:'40px',textAlign:'center',color:'#ccc'}},'작업자 명단이 없습니다. 관리자에서 추가해주세요.'));
     root.append(w);return;
   }
   
@@ -1570,7 +1570,7 @@ function rDogeup(root){
   }
   table.append(hdrRow);
   
-  // 각 도급직 직원 (2행씩: 출근/퇴근)
+  // 각 작업자 직원 (2행씩: 출근/퇴근)
   dogeupNames.forEach((name,mi)=>{
     const dgKey='dogeup_'+yr+'_'+(mo+1)+'_'+name;
     const saved=JSON.parse(localStorage.getItem(dgKey)||'{}');
@@ -1625,7 +1625,7 @@ function rDogeup(root){
     '💡 출근/퇴근 시간 직접 입력 (예: 8:30, 17:30)\n연차는 "연" 입력, 반차는 "오전반" 등 자유 입력'));
   
   // 엑셀 다운로드
-  w.append(h('button',{className:'btn btn-brown btn-full',style:{marginBottom:'6px'},onClick:()=>dlDogeupExcel()},'📥 도급직 근태현황표 다운로드'));
+  w.append(h('button',{className:'btn btn-brown btn-full',style:{marginBottom:'6px'},onClick:()=>dlDogeupExcel()},'📥 작업자 근태현황표 다운로드'));
   
   // Firebase에서 데이터 로드 (최초 1회)
   dogeupNames.forEach(name=>{
@@ -1645,7 +1645,7 @@ function rDogeup(root){
   root.append(w);
 }
 
-// 도급직 엑셀 다운로드
+// 작업자 엑셀 다운로드
 async function dlDogeupExcel(){
   const yr=S.dogeupYear,mo=S.dogeupMonth;
   const moLabel=(mo+1)+'월';
@@ -1654,7 +1654,7 @@ async function dlDogeupExcel(){
   const dayNames=['일','월','화','수','목','금','토'];
   
   try{
-    const resp=await fetch('./개발팀_도급직__근태현황표.xlsx');
+    const resp=await fetch('./개발팀_작업자__근태현황표.xlsx');
     if(!resp.ok)throw new Error('no file');
     const buf=await resp.arrayBuffer();
     const wb=XLSX.read(buf,{type:'array',cellStyles:true,cellNF:true});
@@ -1668,7 +1668,7 @@ async function dlDogeupExcel(){
       setCellNum(ws,4,3+d-1,d);
     }
     
-    // 각 도급직 데이터 (R6부터, 2행씩)
+    // 각 작업자 데이터 (R6부터, 2행씩)
     dogeupNames.forEach((name,mi)=>{
       const baseRow=5+mi*2;
       const dgKey='dogeup_'+yr+'_'+(mo+1)+'_'+name;
@@ -1696,7 +1696,7 @@ async function dlDogeupExcel(){
     });
     
     ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:5+dogeupNames.length*2+2,c:3+daysInMonth}});
-    XLSX.writeFile(wb,'도급직_근태_'+yr+'년'+moLabel+'.xlsx',{bookSST:true,bookType:'xlsx'});
+    XLSX.writeFile(wb,'작업자_근태_'+yr+'년'+moLabel+'.xlsx',{bookSST:true,bookType:'xlsx'});
   }catch(e){
     // CSV 폴백
     let csv="\uFEFF"+moLabel+' 개발팀 근태 현황표('+yr+')\n';
@@ -1721,7 +1721,7 @@ async function dlDogeupExcel(){
       });
     });
     const b=new Blob([csv],{type:"text/csv;charset=utf-8;"}),a=document.createElement("a");
-    a.href=URL.createObjectURL(b);a.download='도급직_근태_'+yr+'년'+moLabel+'.csv';a.click();
+    a.href=URL.createObjectURL(b);a.download='작업자_근태_'+yr+'년'+moLabel+'.csv';a.click();
   }
 }
 
@@ -1834,7 +1834,7 @@ function rStatus(root){
     const officeVotes=filtered.filter(v=>v.office===office);
     if(!officeVotes.length)return;
     
-    // 정규직만 (도급직은 도급직 탭에서 별도 관리)
+    // 정규직만 (작업자은 작업자 탭에서 별도 관리)
     const typeVotes=officeVotes;
     const typeName=office+'사무실';
     {
@@ -2188,10 +2188,10 @@ function rModal(root){
       officeMembers.forEach(m=>{const o=h('option',{value:m.id},m.name+' ('+m.dept+')');if(m.id===S.awayForm.memberId)o.selected=true;grp.append(o);});
       sel1.append(grp);
     });
-    // 도급직 (이름 기반)
+    // 작업자 (이름 기반)
     const dgNames=getDogeupNames();
     if(dgNames.length){
-      const dgGrp=h('optgroup',{label:'👷 도급직'});
+      const dgGrp=h('optgroup',{label:'👷 작업자'});
       dgNames.forEach(name=>{const o=h('option',{value:'DG_'+name},name);if(S.awayForm.memberId==='DG_'+name)o.selected=true;dgGrp.append(o);});
       sel1.append(dgGrp);
     }
@@ -2225,7 +2225,12 @@ function rModal(root){
 
 // ═══ 앱 시작 시 Firebase 동기화 ═══
 (function initFirebaseSync(){
-  // 도급직 명단 동기화
+  // v7: 테스트 부재 데이터 정리
+  if(!localStorage.getItem('away_cleaned_v7')){
+    db.ref('away').set([]);
+    localStorage.setItem('away_cleaned_v7','1');
+  }
+  // 작업자 명단 동기화
   db.ref('dogeupNames').once('value',snap=>{
     const data=snap.val();
     if(data){
