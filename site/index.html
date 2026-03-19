@@ -170,16 +170,7 @@ const MEMBERS=[
   {id:"SD13",name:"이종훈",dept:"개발2팀",part:"제품개발P",rank:"팀원",type:"정규",office:"송도",junior:false},
   {id:"SD14",name:"김동련",dept:"제어파트",part:"제어P",rank:"팀원",type:"정규",office:"송도",junior:false},
   {id:"SD15",name:"심효정",dept:"제어파트",part:"제어P",rank:"팀원",type:"정규",office:"송도",junior:false},
-  // ══ 송도팀 (인천) ══ 도급직
-  {id:"SD16",name:"장정금",dept:"개발팀",part:"제품개발P",rank:"팀원",type:"도급직",office:"송도",junior:false},
-  {id:"SD17",name:"손수민",dept:"개발팀",part:"제품개발P",rank:"팀원",type:"도급직",office:"송도",junior:false},
-  {id:"SD18",name:"안민아",dept:"개발팀",part:"제품개발P",rank:"팀원",type:"도급직",office:"송도",junior:false},
-  {id:"SD19",name:"김선우",dept:"개발팀",part:"제품개발P",rank:"팀원",type:"도급직",office:"송도",junior:false},
-  {id:"SD20",name:"이주현",dept:"개발팀",part:"제품개발P",rank:"팀원",type:"도급직",office:"송도",junior:false},
-  {id:"SD21",name:"박은자",dept:"개발팀",part:"제품개발P",rank:"팀원",type:"도급직",office:"송도",junior:false},
-  {id:"SD22",name:"고정윤",dept:"개발팀",part:"제품개발P",rank:"팀원",type:"도급직",office:"송도",junior:false},
-  {id:"SD23",name:"민미정",dept:"개발팀",part:"제품개발P",rank:"팀원",type:"도급직",office:"송도",junior:false},
-  {id:"SD24",name:"김현지",dept:"개발팀",part:"제품개발P",rank:"팀원",type:"도급직",office:"송도",junior:false},
+  // ══ 도급직은 별도 관리 (관리자 > 👷 도급직 명단 관리) ══
 ];
 const OFFICES=["강남","송도"];
 const CLOCK_IN=["8:30","10:00","10:30","11:00","13:30"];
@@ -409,7 +400,30 @@ function officeBg(o){return o==='강남'?'#E3F2FD':'#E0F2F1';}
 
 // ═══ 관리자 — 직원 관리 ═══
 const ADMIN_PW='jysol';
-const DATA_VERSION='v5_dogeup_away_fix';
+// ═══ 도급직 명단 관리 (이름만) ═══
+const DEFAULT_DOGEUP_NAMES=['장정금','손수민','안민아','김선우','이주현','박은자','고정윤','민미정','김현지'];
+function loadDogeupNames(){
+  const saved=localStorage.getItem('dogeupNames');
+  if(saved){try{const arr=JSON.parse(saved);if(arr.length)return arr;}catch(e){}}
+  return [...DEFAULT_DOGEUP_NAMES];
+}
+function saveDogeupNames(list){
+  localStorage.setItem('dogeupNames',JSON.stringify(list));
+  db.ref('dogeupNames').set(list);
+}
+function getDogeupNames(){return loadDogeupNames();}
+function addDogeupName(name){
+  const list=loadDogeupNames();
+  if(list.includes(name)){alert('이미 등록된 이름입니다.');return;}
+  list.push(name);
+  saveDogeupNames(list);render();
+}
+function deleteDogeupName(name){
+  if(!confirm(name+'님을 삭제하시겠습니까?'))return;
+  const list=loadDogeupNames().filter(n=>n!==name);
+  saveDogeupNames(list);render();
+}
+const DATA_VERSION='v6_dogeup_final';
 function loadMembers(){
   const ver=localStorage.getItem('members_ver');
   if(ver!==DATA_VERSION){localStorage.removeItem('members');localStorage.setItem('members_ver',DATA_VERSION);}
@@ -1057,6 +1071,38 @@ function rAdmin(root){
       const b=new Blob([csv],{type:"text/csv;charset=utf-8;"}),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download='직원명단.csv';a.click();
     }},'📥 현재 명단 CSV 다운로드')
   ));
+
+  // ═══ 도급직 명단 관리 ═══
+  const dgNames=getDogeupNames();
+  const dgBox=h('div',{style:{marginTop:'20px',background:'white',borderRadius:'16px',padding:'20px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}});
+  dgBox.append(h('div',{style:{fontSize:'14px',fontWeight:800,marginBottom:'4px',color:'#E65100'}},'👷 도급직 명단 관리'));
+  dgBox.append(h('div',{style:{fontSize:'11px',color:'#999',marginBottom:'14px'}},'이름만 관리합니다 (사번, 팀 없음). 도급직 탭 캘린더에 반영됩니다.'));
+  
+  const dgAddRow=h('div',{style:{display:'flex',gap:'6px',marginBottom:'14px'}});
+  const dgInput=h('input',{style:{flex:1,padding:'10px 13px',borderRadius:'9px',border:'2px solid #e5e5e5',fontSize:'13px',outline:'none',fontFamily:'inherit'},
+    placeholder:'이름 입력',id:'dgNameInput'});
+  dgAddRow.append(dgInput);
+  dgAddRow.append(h('button',{className:'btn',style:{padding:'10px 16px',background:'#E65100',color:'white',borderRadius:'9px',fontSize:'13px',fontWeight:700},
+    onClick:()=>{
+      const inp=document.getElementById('dgNameInput');
+      const nm=inp.value.trim();
+      if(!nm){alert('이름을 입력해주세요.');return;}
+      addDogeupName(nm);
+      inp.value='';
+    }},'➕ 추가'));
+  dgBox.append(dgAddRow);
+  
+  dgBox.append(h('div',{style:{fontSize:'11px',fontWeight:700,color:'#555',marginBottom:'6px'}},'현재 '+dgNames.length+'명'));
+  const dgList=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px'}});
+  dgNames.forEach(nm=>{
+    dgList.append(h('div',{style:{display:'flex',alignItems:'center',gap:'4px',padding:'6px 10px',borderRadius:'8px',background:'#FFF3E0',border:'1px solid #FFE0B2'}},
+      h('span',{style:{fontSize:'12px',fontWeight:700,color:'#E65100'}},nm),
+      h('button',{style:{background:'none',border:'none',color:'#c62828',fontSize:'14px',cursor:'pointer',padding:'0 2px',fontWeight:900},
+        onClick:()=>deleteDogeupName(nm)},'×')
+    ));
+  });
+  dgBox.append(dgList);
+  wrap.append(dgBox);
 
   wrap.append(h('button',{style:{width:'100%',marginTop:'16px',padding:'13px',borderRadius:'11px',border:'none',background:'var(--brown)',color:'white',fontSize:'14px',fontWeight:700,cursor:'pointer',fontFamily:'inherit'},
     onClick:()=>{S.screen='auth';S.adminMode=false;render();}},'✅ 완료 — 로그인 화면으로'));
@@ -1788,15 +1834,13 @@ function rStatus(root){
     const officeVotes=filtered.filter(v=>v.office===office);
     if(!officeVotes.length)return;
     
-    // 정규직 / 도급직 분리
-    const regularVotes=officeVotes.filter(v=>v.type!=='도급직');
-    const dogeupVotes=officeVotes.filter(v=>v.type==='도급직');
-    
-    [['정규직',regularVotes],['도급직',dogeupVotes]].forEach(([typeName,typeVotes])=>{
-      if(!typeVotes.length)return;
+    // 정규직만 (도급직은 도급직 탭에서 별도 관리)
+    const typeVotes=officeVotes;
+    const typeName=office+'사무실';
+    {
       const typeOT=typeVotes.reduce((sum,v)=>sum+calcOvertime(v.clockIn,v.clockOut),0);
       w.append(h('div',{className:'office-hdr '+(office==='강남'?'seoul':'incheon')},
-        '🏢 '+office+' '+typeName,
+        '🏢 '+typeName,
         h('span',{className:'count'},typeVotes.length+'명'),
         typeOT>0?h('span',{style:{marginLeft:'auto',fontSize:'11px',fontWeight:800,color:'#E65100',background:'#FFF3E0',padding:'2px 8px',borderRadius:'6px'}},'연장 '+typeOT+'h'):null
       ));
@@ -1848,7 +1892,7 @@ function rStatus(root){
       }
     });
     w.append(table);
-    }); // end typeName forEach
+    } // end office block
   }); // end office forEach
 
   // ── 주간 연장근무 미리보기 (사무실별) ──
@@ -2181,6 +2225,14 @@ function rModal(root){
 
 // ═══ 앱 시작 시 Firebase 동기화 ═══
 (function initFirebaseSync(){
+  // 도급직 명단 동기화
+  db.ref('dogeupNames').once('value',snap=>{
+    const data=snap.val();
+    if(data){
+      const arr=Array.isArray(data)?data:Object.values(data);
+      if(arr.length)localStorage.setItem('dogeupNames',JSON.stringify(arr));
+    }
+  });
   fbLoadAway(awayList=>{
     if(awayList){
       // Firebase에서 object로 올 수 있으므로 배열로 변환
