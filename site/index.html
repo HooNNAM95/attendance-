@@ -295,7 +295,7 @@ let S={
   awayPeriods:JSON.parse(localStorage.getItem('away')||'[]'),
   chatLog:[],
   running:false,modal:null,
-  awayForm:{memberId:"EMP001",type:"해외출장",from:"2026-03-17",to:"2026-03-21",memo:""},
+  awayForm:{memberId:"GN01",type:"해외출장",from:"2026-03-17",to:"2026-03-21",memo:""},
   weekendForm:{dates:"",memo:""},
   notifOk:typeof Notification!=='undefined'&&Notification.permission==="granted",notifDismissed:false,
   editing:false,
@@ -409,7 +409,7 @@ function officeBg(o){return o==='강남'?'#E3F2FD':'#E0F2F1';}
 
 // ═══ 관리자 — 직원 관리 ═══
 const ADMIN_PW='jysol';
-const DATA_VERSION='v4_with_dogeup';
+const DATA_VERSION='v5_dogeup_away_fix';
 function loadMembers(){
   const ver=localStorage.getItem('members_ver');
   if(ver!==DATA_VERSION){localStorage.removeItem('members');localStorage.setItem('members_ver',DATA_VERSION);}
@@ -650,7 +650,7 @@ function setDayStatus(key){
 function voteClockIn(t){S.votes=S.votes.map(v=>v.id===S.user.id?{...v,clockIn:t}:v);addChat("user","출근: "+t,"vote");addChat("bot","✅ 출근 "+t+" 완료!","confirm");save();render();}
 function voteClockOut(t){S.votes=S.votes.map(v=>v.id===S.user.id?{...v,clockOut:t}:v);addChat("user","퇴근: "+t,"vote");addChat("bot","✅ 퇴근 "+t+" 완료!","confirm");save();render();}
 function submitWeekend(){const dates=S.weekendForm.dates.split(',').map(s=>s.trim()).filter(Boolean);if(!dates.length)return;S.votes=S.votes.map(v=>v.id===S.user.id?{...v,weekendDates:[...v.weekendDates,...dates]}:v);addChat("user","주말출근: "+dates.join(", "),"vote");addChat("bot","💼 등록!\n"+dates.join(", "),"confirm");S.modal=null;S.weekendForm={dates:"",memo:""};save();render();}
-function submitAway(){if(!S.awayForm.from||!S.awayForm.to)return;const a={...S.awayForm,id:Date.now(),registeredBy:S.user.name};S.awayPeriods.push(a);const t=MEMBERS.find(m=>m.id===a.memberId);addChat("bot","✈️ 부재 등록!\n👤 "+t?.name+" ("+t?.office+")\n📋 "+a.type+"\n📅 "+a.from+" ~ "+a.to+(a.memo?"\n📝 "+a.memo:"")+"\n\n⏸️ 기간 내 알림 자동 면제","system");S.modal=null;save();render();}
+function submitAway(){if(!S.awayForm.from||!S.awayForm.to)return;const a={...S.awayForm,id:Date.now(),registeredBy:S.user.name};S.awayPeriods.push(a);const t=getMembers().find(m=>m.id===a.memberId);addChat("bot","✈️ 부재 등록!\n👤 "+t?.name+" ("+t?.office+")\n📋 "+a.type+"\n📅 "+a.from+" ~ "+a.to+(a.memo?"\n📝 "+a.memo:"")+"\n\n⏸️ 기간 내 알림 자동 면제","system");S.modal=null;save();render();}
 function deleteAway(id){S.awayPeriods=S.awayPeriods.filter(a=>a.id!==id);save();render();}
 
 function sendReminder(idx){
@@ -1787,19 +1787,26 @@ function rStatus(root){
   offices.forEach(office=>{
     const officeVotes=filtered.filter(v=>v.office===office);
     if(!officeVotes.length)return;
-    const officeOT=officeVotes.reduce((sum,v)=>sum+calcOvertime(v.clockIn,v.clockOut),0);
-    w.append(h('div',{className:'office-hdr '+(office==='강남'?'seoul':'incheon')},
-      '🏢 '+office+'사무실',
-      h('span',{className:'count'},officeVotes.length+'명'),
-      officeOT>0?h('span',{style:{marginLeft:'auto',fontSize:'11px',fontWeight:800,color:'#E65100',background:'#FFF3E0',padding:'2px 8px',borderRadius:'6px'}},'연장 '+officeOT+'h'):null
-    ));
+    
+    // 정규직 / 도급직 분리
+    const regularVotes=officeVotes.filter(v=>v.type!=='도급직');
+    const dogeupVotes=officeVotes.filter(v=>v.type==='도급직');
+    
+    [['정규직',regularVotes],['도급직',dogeupVotes]].forEach(([typeName,typeVotes])=>{
+      if(!typeVotes.length)return;
+      const typeOT=typeVotes.reduce((sum,v)=>sum+calcOvertime(v.clockIn,v.clockOut),0);
+      w.append(h('div',{className:'office-hdr '+(office==='강남'?'seoul':'incheon')},
+        '🏢 '+office+' '+typeName,
+        h('span',{className:'count'},typeVotes.length+'명'),
+        typeOT>0?h('span',{style:{marginLeft:'auto',fontSize:'11px',fontWeight:800,color:'#E65100',background:'#FFF3E0',padding:'2px 8px',borderRadius:'6px'}},'연장 '+typeOT+'h'):null
+      ));
     
     const grid6='1fr 42px 42px 50px 42px';
     const table=h('div',{style:{background:'white',borderRadius:'14px',boxShadow:'0 1px 3px rgba(0,0,0,0.05)',overflow:'hidden',marginBottom:'10px'}});
     table.append(h('div',{style:{display:'grid',gridTemplateColumns:grid6,gap:'1px',padding:'9px 13px',alignItems:'center',textAlign:'center',fontSize:'10px',background:'#fafafa',borderBottom:'1px solid #eee',fontWeight:800,color:'#888'}},
       h('span',{style:{textAlign:'left'}},'이름'),h('span',null,'출근'),h('span',null,'퇴근'),h('span',null,'상태'),h('span',{style:{color:'#E65100'}},'연장')));
     
-    officeVotes.forEach(v=>{
+    typeVotes.forEach(v=>{
       const away=isAway(v.id,S.simTime);
       const awInfo=away?getAway(v.id,S.simTime):null;
       const ex=isExempt(v.id,S.simTime);
@@ -1841,7 +1848,8 @@ function rStatus(root){
       }
     });
     w.append(table);
-  });
+    }); // end typeName forEach
+  }); // end office forEach
 
   // ── 주간 연장근무 미리보기 (사무실별) ──
   const weekDates=getWeekDates(S.simTime);
@@ -2128,10 +2136,15 @@ function rModal(root){
     box.append(h('div',{className:'sub'},'등록 기간 동안 알림 면제 + 투표 불필요'));
     box.append(h('label',null,'대상'));
     const sel1=h('select',{onChange:e=>{S.awayForm.memberId=e.target.value;}});
+    const allMembers=getMembers();
     OFFICES.forEach(office=>{
-      const grp=h('optgroup',{label:'🏢 '+office+'사무실'});
-      MEMBERS.filter(m=>m.office===office).forEach(m=>{const o=h('option',{value:m.id},m.name+' ('+m.dept+')');if(m.id===S.awayForm.memberId)o.selected=true;grp.append(o);});
-      sel1.append(grp);
+      ['정규','도급직'].forEach(type=>{
+        const typeMembers=allMembers.filter(m=>m.office===office&&(type==='정규'?m.type!=='도급직':m.type==='도급직'));
+        if(!typeMembers.length)return;
+        const grp=h('optgroup',{label:'🏢 '+office+' '+type});
+        typeMembers.forEach(m=>{const o=h('option',{value:m.id},m.name+' ('+m.dept+')');if(m.id===S.awayForm.memberId)o.selected=true;grp.append(o);});
+        sel1.append(grp);
+      });
     });
     box.append(sel1);
     box.append(h('label',null,'유형'));
