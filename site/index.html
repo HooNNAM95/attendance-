@@ -1017,20 +1017,25 @@ function getWeekendEntryForExport(rec,date){
 }
 function getWorkInfoForExport(member,date,rec){
   const weekend=isWeekend(date);
+  const defaultClockIn='08:30';
+  const defaultClockOut='17:30';
+
   if(weekend){
     const item=getWeekendEntryForExport(rec,date);
     return {
-      clockIn:item?.clockIn||'',
-      clockOut:item?.clockOut||'',
+      // 주말 시트는 기본값 08:30 / 17:30을 선반영하고,
+      // 실제 주말근무 입력이 있으면 그 시간으로 덮어쓴다.
+      clockIn:item?.clockIn||defaultClockIn,
+      clockOut:item?.clockOut||defaultClockOut,
       hours:item?.hours||0
     };
   }
 
   const status=rec?.todayStatus||rec?.dayStatus||'';
-  const defaultClockIn='08:30';
-  const defaultClockOut='17:30';
-  const clockIn=rec?.clockIn || ((!status || status==='출근') ? defaultClockIn : '');
-  const clockOut=rec?.clockOut || ((!status || status==='출근') ? defaultClockOut : '');
+  const normalizedStatus=String(status||'').trim();
+  const treatAsWorked=(!normalizedStatus || normalizedStatus==='출근' || normalizedStatus==='미투표');
+  const clockIn=rec?.clockIn || (treatAsWorked ? defaultClockIn : '');
+  const clockOut=rec?.clockOut || (treatAsWorked ? defaultClockOut : '');
   const hours=Math.round(Number((rec?.overtime!=null?rec.overtime:calcOvertime(clockIn,clockOut))||0)*2)/2;
 
   return {
@@ -1064,20 +1069,23 @@ function getDayStatusForExport(member,date,rec){
     const ai=getAway(member.id,date);
     if(ai?.type) return ai.type;
   }
-  const st=rec?.todayStatus||rec?.dayStatus||'';
+  const st=String(rec?.todayStatus||rec?.dayStatus||'').trim();
   if(st) return st;
-  if(!isOffDay(date)) return '출근';
-  return '';
+  // 미투표는 선반영: 평일은 출근, 토/일/공휴일은 휴무
+  if(isOffDay(date)) return '휴무';
+  return '출근';
 }
 function getPrevStatusTextForExport(member,targetDate){
   const prev=new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()-1);
-  if(isWeekend(prev)) return '휴무';
-  if(isHoliday(prev)) return '휴무';
+  // 전날이 토/일/공휴일이면 업무내용은 무조건 휴무
+  if(isWeekend(prev) || isHoliday(prev)) return '휴무';
   const rec=getExportRecord(member,prev);
   return normalizeWorkText(getDayStatusForExport(member,prev,rec));
 }
 function getTodayStatusTextForExport(member,targetDate,rec){
-  return normalizeWorkText(getDayStatusForExport(member,targetDate,rec));
+  const status=getDayStatusForExport(member,targetDate,rec);
+  // R열은 오늘 상태 기준: 토/일/공휴일은 휴무, 평일 출근은 업무 진행
+  return normalizeWorkText(status);
 }
 function clearSheetRange(ws,sr,er,sc,ec){
   for(let r=sr;r<=er;r++){
@@ -1184,8 +1192,10 @@ async function dlWeekly(officeFilter){
 
     dateSheets.forEach((dt,idx)=>{
       const tplName=dateTemplateNames[Math.min(idx,dateTemplateNames.length-1)];
-      const ws=wb.Sheets[tplName];
-      if(!ws)return;
+      const baseWs=wb.Sheets[tplName];
+      if(!baseWs)return;
+      // 템플릿 색상/병합/서식을 최대한 유지하기 위해 시트를 복제 후 값만 채운다.
+      const ws=cloneSheetObj(baseWs);
       fillDailyOvertimeSheet(ws,dt,offVotes);
       const newName=fmtSheetDate(dt);
       nextSheets[newName]=ws;
