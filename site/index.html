@@ -643,40 +643,65 @@ function confirmVote(){
   const p=S.pending;
   if(!p.dayStatus){alert('근무 상태를 선택해주세요!');return;}
   const opt=DAY_STATUS.find(o=>o.key===p.dayStatus);
-  const isWeekendWork=p.dayStatus==='주말출근';
+  const hasWeekendEntry=!!(p.weekendDates?.length);
   const needClock=!opt?.exempt||p.dayStatus==='오후반차'||p.dayStatus==='외근'||p.dayStatus==='직출';
-  if(isWeekendWork){
-    if(!p.weekendDates?.length){alert('주말 출근 날짜를 선택해주세요!');return;}
+
+  if(hasWeekendEntry){
     const wh=Number(p.weekendHours);
     if(!Number.isFinite(wh)||wh<=0){alert('주말 근무 시간을 입력해주세요!');return;}
   }
+  if(p.dayStatus==='주말출근'&&!hasWeekendEntry){alert('주말 출근 날짜를 선택해주세요!');return;}
   if(p.dayStatus==='오전반차'&&!p.clockOut){alert('퇴근 시간을 선택해주세요!');return;}
   if(p.dayStatus==='오후반차'&&!p.clockIn){alert('출근 시간을 선택해주세요!');return;}
-  if(!isWeekendWork&&needClock&&p.dayStatus!=='오전반차'&&p.dayStatus!=='오후반차'&&!p.clockIn){alert('출근 시간을 선택해주세요!');return;}
-  const weekendHoursMap={};
-  if(isWeekendWork){
+  if(p.dayStatus!=='주말출근'&&needClock&&p.dayStatus!=='오전반차'&&p.dayStatus!=='오후반차'&&!p.clockIn){alert('출근 시간을 선택해주세요!');return;}
+
+  const cur=S.votes.find(v=>v.id===S.user.id)||{};
+  let weekendHoursMap=cur.weekendHoursMap||{};
+  let weekendDates=cur.weekendDates||[];
+
+  if(hasWeekendEntry){
+    weekendHoursMap={};
     const wh=Math.round(Number(p.weekendHours)*2)/2;
     (p.weekendDates||[]).forEach(d=>{weekendHoursMap[d]=wh;});
+    weekendDates=[...(p.weekendDates||[])];
+  } else if((p.weekendDates||[]).length===0 && (p.weekendHours||'')===''){
+    weekendHoursMap={};
+    weekendDates=[];
   }
-  const finalClockIn=isWeekendWork||p.dayStatus==='오전반차'?null:p.clockIn;
-  const finalClockOut=isWeekendWork||p.dayStatus==='오후반차'?null:p.clockOut;
-  S.votes=S.votes.map(v=>v.id===S.user.id?{...v,dayStatus:p.dayStatus,clockIn:finalClockIn,clockOut:finalClockOut,confirmed:true,reason:p.reason,location:p.location,weekendDates:isWeekendWork?(p.weekendDates||[]):(v.weekendDates||[]),weekendHoursMap:isWeekendWork?weekendHoursMap:(v.weekendHoursMap||{})}:v);
-  let msg="오늘: "+p.dayStatus;
+
+  const finalDayStatus=p.dayStatus==='주말출근'?'출근':p.dayStatus;
+  const finalClockIn=finalDayStatus==='오전반차'?null:p.clockIn;
+  const finalClockOut=finalDayStatus==='오후반차'?null:p.clockOut;
+
+  S.votes=S.votes.map(v=>v.id===S.user.id?{
+    ...v,
+    dayStatus:finalDayStatus,
+    clockIn:finalClockIn,
+    clockOut:finalClockOut,
+    confirmed:true,
+    reason:p.reason,
+    location:p.location,
+    weekendDates:weekendDates,
+    weekendHoursMap:weekendHoursMap
+  }:v);
+
+  let msg="오늘: "+finalDayStatus;
   if(p.reason)msg+="\n사유: "+p.reason;
   if(p.location)msg+="\n행선지: "+p.location;
-  if(isWeekendWork){
+  if(hasWeekendEntry){
     msg+="\n주말 날짜: "+(p.weekendDates||[]).join(', ');
     msg+="\n근무시간: "+p.weekendHours+'시간';
-  } else {
-    if(finalClockIn)msg+="\n출근: "+finalClockIn;
-    if(finalClockOut)msg+="\n퇴근: "+finalClockOut;
   }
+  if(finalClockIn)msg+="\n출근: "+finalClockIn;
+  if(finalClockOut)msg+="\n퇴근: "+finalClockOut;
+
   addChat("user",msg,"vote");
   addChat("bot","✅ "+S.user.name+"님 투표 확정!","confirm");
-  S.editing=false;save();render();
+  save();
+  S.pending={dayStatus:null,clockIn:null,clockOut:null,reason:'',location:'',weekendDates:[],weekendHours:''};S.editing=false;
+  render();
 }
 
-// 수정 버튼 → 다시 선택 가능
 function editVote(){
   const mv=myV();
   S.pending={dayStatus:mv?.dayStatus||null,clockIn:mv?.clockIn||null,clockOut:mv?.clockOut||null,reason:mv?.reason||'',location:mv?.location||'',weekendDates:mv?.weekendDates||[],weekendHours:mv?.weekendHoursMap?String(Object.values(mv.weekendHoursMap)[0]||''):''};
@@ -1232,7 +1257,7 @@ function rToday(root){
         }},h('div',{className:'ds-icon'},opt.icon),h('div',{className:'ds-label'},opt.label),h('div',{className:'ds-sub'},opt.desc)));
       });
       // 기타 버튼
-      const etcKeys=DAY_STATUS.filter(d=>!MAIN_STATUS_KEYS.includes(d.key)).map(d=>d.key);
+      const etcKeys=DAY_STATUS.filter(d=>!MAIN_STATUS_KEYS.includes(d.key)&&d.key!=='주말출근').map(d=>d.key);
       const isEtcSel=etcKeys.includes(mv?.todayStatus);
       grid.append(h('div',{className:'ds-card'+(S.todayEtcOpen||isEtcSel?' sel':''),onClick:()=>{S.todayEtcOpen=!S.todayEtcOpen;render();}},
         h('div',{className:'ds-icon'},'📋'),h('div',{className:'ds-label'},'기타'),h('div',{className:'ds-sub'},S.todayEtcOpen?'▲ 접기':'▼ 펼치기')));
@@ -1241,7 +1266,7 @@ function rToday(root){
       // 기타 펼침
       if(S.todayEtcOpen||isEtcSel){
         const egrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',margin:'6px 0 10px'}});
-        DAY_STATUS.filter(d=>!MAIN_STATUS_KEYS.includes(d.key)).forEach(opt=>{
+        DAY_STATUS.filter(d=>!MAIN_STATUS_KEYS.includes(d.key)&&d.key!=='주말출근').forEach(opt=>{
           egrid.append(h('div',{style:{padding:'10px 8px',borderRadius:'10px',background:mv?.todayStatus===opt.key?'#fffde7':'white',border:mv?.todayStatus===opt.key?'1.5px solid var(--gold)':'1.5px solid #eee',cursor:'pointer',textAlign:'center',fontSize:'11px',fontWeight:mv?.todayStatus===opt.key?800:600,color:mv?.todayStatus===opt.key?'var(--brown)':'#555',transition:'all .12s'},
             onClick:()=>{S.votes=S.votes.map(v=>v.id===S.user.id?{...v,todayStatus:opt.key}:v);saveDayRecord();render();}},opt.icon+' '+opt.label));
         });
@@ -1425,11 +1450,13 @@ function rVote(root,mv,awayMe,exemptMe){
       mv.clockOut?h('div',{style:{fontSize:'13px',color:'#1565c0',marginBottom:'4px'}},'🕐 퇴근: '+mv.clockOut):null,
       (()=>{const ot=calcOvertime(mv.clockIn,mv.clockOut);return ot>0?h('div',{style:{fontSize:'14px',color:'#c62828',fontWeight:800,marginBottom:'4px',padding:'6px 12px',background:'#ffebee',borderRadius:'8px',display:'inline-block'}},'⏱️ 연장근무: '+ot+'시간'):null;})(),
       mv.weekendDates?.length?h('div',{style:{fontSize:'12px',color:'#f59e0b',marginBottom:'4px'}},'📅 주말: '+mv.weekendDates.join(', ')):null,
+      mv.weekendDates?.length?h('button',{className:'btn',style:{marginTop:'6px',padding:'8px 10px',fontSize:'11px',borderRadius:'8px',background:'#fff8e1',color:'#8d6e63',fontWeight:700},onClick:()=>{S.pending={dayStatus:mv?.dayStatus||null,clockIn:mv?.clockIn||null,clockOut:mv?.clockOut||null,reason:mv?.reason||'',location:mv?.location||'',weekendDates:mv?.weekendDates||[],weekendHours:mv?.weekendHoursMap?String(Object.values(mv.weekendHoursMap)[0]||''):''};S.weekendForm.selected=[...(mv?.weekendDates||[])];S.weekendForm.hours=mv?.weekendHoursMap?String(Object.values(mv.weekendHoursMap)[0]||''):'';S.modal='weekend';render();}},'주말출근 수정'):null,
       h('div',{style:{marginTop:'16px',paddingTop:'14px',borderTop:'1px solid #eee'}}),
       h('button',{className:'btn',style:{padding:'12px 32px',borderRadius:'11px',background:'#f5f5f5',color:'#555',fontSize:'14px',fontWeight:700},onClick:editVote},'✏️ 수정하기')
     ));
     // 퇴근 시간 아직 안 넣었으면 퇴근 투표도 보여주기
-    if(!mv.clockOut){
+    // 단, 오후반차는 퇴근 투표를 다시 보여주지 않음
+    if(!mv.clockOut && mv.dayStatus!=='오후반차'){
       root.append(mkPoll("======== 퇴근 =========",null,null,CLOCK_OUT,"clockOut",mv?.clockOut,voteClockOut));
     }
     return;
@@ -1448,14 +1475,14 @@ function rVote(root,mv,awayMe,exemptMe){
     grid.append(h('div',{className:'ds-card'+(p.dayStatus===key?' sel':''),onClick:()=>{S.etcOpen=false;selectDayStatus(key);}},h('div',{className:'ds-icon'},opt.icon),h('div',{className:'ds-label'},opt.label),h('div',{className:'ds-sub'},opt.desc)));
   });
   // 기타 버튼
-  const etcKeys=DAY_STATUS.filter(d=>!MAIN_STATUS_KEYS.includes(d.key)).map(d=>d.key);
+  const etcKeys=DAY_STATUS.filter(d=>!MAIN_STATUS_KEYS.includes(d.key)&&d.key!=='주말출근').map(d=>d.key);
   const isEtcSel=etcKeys.includes(p.dayStatus);
   grid.append(h('div',{className:'ds-card'+(S.etcOpen||isEtcSel?' sel':''),onClick:()=>{S.etcOpen=!S.etcOpen;render();}},h('div',{className:'ds-icon'},'📋'),h('div',{className:'ds-label'},'기타'),h('div',{className:'ds-sub'},S.etcOpen?'▲ 접기':'▼ 펼치기')));
   root.append(grid);
   // 기타 펼침
   if(S.etcOpen||isEtcSel){
     const egrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',margin:'6px 12px 10px'}});
-    DAY_STATUS.filter(d=>!MAIN_STATUS_KEYS.includes(d.key)).forEach(opt=>{
+    DAY_STATUS.filter(d=>!MAIN_STATUS_KEYS.includes(d.key)&&d.key!=='주말출근').forEach(opt=>{
       egrid.append(h('div',{style:{padding:'10px 8px',borderRadius:'10px',background:p.dayStatus===opt.key?'#fffde7':'white',border:p.dayStatus===opt.key?'1.5px solid var(--gold)':'1.5px solid #eee',cursor:'pointer',textAlign:'center',fontSize:'11px',fontWeight:p.dayStatus===opt.key?800:600,color:p.dayStatus===opt.key?'var(--brown)':'#555',transition:'all .12s'},
         onClick:()=>selectDayStatus(opt.key)},opt.icon+' '+opt.label));
     });
@@ -1515,11 +1542,24 @@ function rVote(root,mv,awayMe,exemptMe){
     root.append(mkPendingPoll("======== 퇴근 =========",null,null,CLOCK_OUT,p.clockOut,t=>{S.pending.clockOut=t;render();}));
   }
 
-  // 주말 출근 날짜/시간
-  if(p.dayStatus==='주말출근'){
-    const wk=h('div',{className:'poll'});wk.append(h('div',{className:'poll-hdr'},h('div',{className:'poll-title'},'======== 주말 출근 날짜/시간 =========')));
-    wk.append(h('div',{className:'poll-opt',onClick:()=>{S.weekendForm.selected=[...(p.weekendDates||[])];S.weekendForm.hours=p.weekendHours||'';S.modal='weekend';render();}},h('div',{style:{display:'flex',alignItems:'center',gap:'9px'}},h('span',{style:{fontSize:'13px',fontWeight:600}},'📅 토/일 선택 + 시간입력')),h('span',{style:{fontSize:'12px',color:'var(--gold)',fontWeight:600}},p.weekendDates?.length?p.weekendDates.length+'일':'클릭')));
-    if(p.weekendDates?.length)wk.append(h('div',{style:{padding:'9px 15px',background:'#fffde7',fontSize:'11px',color:'#666'}},'등록: '+p.weekendDates.join(', ')+' / '+(p.weekendHours||'')+'시간'));
+  // 주말 출근 별도 등록 (금요일 일반 투표와 분리)
+  {
+    const wk=h('div',{className:'poll'});
+    wk.append(h('div',{className:'poll-hdr'},
+      h('div',{className:'poll-title'},'======== 주말출근 별도 등록 ========='),
+      h('div',{style:{fontSize:'10px',color:'#999',marginTop:'4px'}},'금요일 근태 투표와 별개로 토/일 근무시간만 따로 등록합니다.')
+    ));
+    wk.append(h('div',{className:'poll-opt',onClick:()=>{S.weekendForm.selected=[...(p.weekendDates||[])];S.weekendForm.hours=p.weekendHours||'';S.modal='weekend';render();}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:'9px'}},
+        h('span',{style:{fontSize:'13px',fontWeight:600}},'📅 토/일 선택 + 시간입력')
+      ),
+      h('span',{style:{fontSize:'12px',color:'var(--gold)',fontWeight:600}},p.weekendDates?.length?p.weekendDates.length+'일':'클릭')
+    ));
+    if(p.weekendDates?.length){
+      wk.append(h('div',{style:{padding:'9px 15px',background:'#fffde7',fontSize:'11px',color:'#666'}},'등록: '+p.weekendDates.join(', ')+' / '+(p.weekendHours||'')+'시간'));
+    } else {
+      wk.append(h('div',{style:{padding:'9px 15px',background:'#fafafa',fontSize:'11px',color:'#999'}},'주말 근무 예정이 없으면 비워두세요.'));
+    }
     root.append(wk);
   }
 
