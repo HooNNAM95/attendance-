@@ -1297,7 +1297,8 @@ function rToday(root){
       MAIN_STATUS_KEYS.forEach(key=>{
         const opt=DAY_STATUS.find(o=>o.key===key);if(!opt)return;
         grid.append(h('div',{className:'ds-card'+(mv?.todayStatus===key?' sel':''),onClick:()=>{
-          S.votes=S.votes.map(v=>v.id===S.user.id?{...v,todayStatus:key}:v);S.todayEtcOpen=false;saveDayRecord();render();
+          const nextStatus = mv?.todayStatus===key ? null : key;
+          S.votes=S.votes.map(v=>v.id===S.user.id?{...v,todayStatus:nextStatus}:v);S.todayEtcOpen=false;saveDayRecord();render();
         }},h('div',{className:'ds-icon'},opt.icon),h('div',{className:'ds-label'},opt.label),h('div',{className:'ds-sub'},opt.desc)));
       });
       // 기타 버튼
@@ -1312,7 +1313,7 @@ function rToday(root){
         const egrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',margin:'6px 0 10px'}});
         DAY_STATUS.filter(d=>!MAIN_STATUS_KEYS.includes(d.key)&&d.key!=='주말출근').forEach(opt=>{
           egrid.append(h('div',{style:{padding:'10px 8px',borderRadius:'10px',background:mv?.todayStatus===opt.key?'#fffde7':'white',border:mv?.todayStatus===opt.key?'1.5px solid var(--gold)':'1.5px solid #eee',cursor:'pointer',textAlign:'center',fontSize:'11px',fontWeight:mv?.todayStatus===opt.key?800:600,color:mv?.todayStatus===opt.key?'var(--brown)':'#555',transition:'all .12s'},
-            onClick:()=>{S.votes=S.votes.map(v=>v.id===S.user.id?{...v,todayStatus:opt.key}:v);saveDayRecord();render();}},opt.icon+' '+opt.label));
+            onClick:()=>{const nextStatus = mv?.todayStatus===opt.key ? null : opt.key;S.votes=S.votes.map(v=>v.id===S.user.id?{...v,todayStatus:nextStatus}:v);saveDayRecord();render();}},opt.icon+' '+opt.label));
         });
         w.append(egrid);
       }
@@ -1371,7 +1372,7 @@ function rToday(root){
   
   // 필터 적용
   const displayVotes=S.votes.filter(v=>{
-    if(tf.office&&v.office!==tf.office)return false;
+    if(tf.office && tf.office!=='전체' && v.office!==tf.office)return false;
     if(tf.dept!=='전체'&&v.dept!==tf.dept)return false;
     return true;
   });
