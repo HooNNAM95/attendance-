@@ -617,7 +617,24 @@ function login(){
 }
 
 // 임시 선택 (아직 확정 아님)
-function selectDayStatus(key){S.pending.dayStatus=key;S.pending.reason='';S.pending.location='';if(key!=='주말출근'){S.pending.weekendDates=[];S.pending.weekendHours='';}render();}
+function selectDayStatus(key){
+  S.pending.dayStatus=key;
+  S.pending.reason='';
+  S.pending.location='';
+  if(key!=='주말출근'){
+    S.pending.weekendDates=[];
+    S.pending.weekendHours='';
+  }
+  if(key==='오후반차'){
+    S.pending.clockOut=null;
+  }else if(key==='오전반차'){
+    S.pending.clockIn=null;
+  }else if(key==='주말출근'){
+    S.pending.clockIn=null;
+    S.pending.clockOut=null;
+  }
+  render();
+}
 function selectClockIn(t){S.pending.clockIn=t;render();}
 function selectClockOut(t){S.pending.clockOut=t;render();}
 
@@ -641,7 +658,9 @@ function confirmVote(){
     const wh=Math.round(Number(p.weekendHours)*2)/2;
     (p.weekendDates||[]).forEach(d=>{weekendHoursMap[d]=wh;});
   }
-  S.votes=S.votes.map(v=>v.id===S.user.id?{...v,dayStatus:p.dayStatus,clockIn:isWeekendWork?null:p.clockIn,clockOut:isWeekendWork?null:p.clockOut,confirmed:true,reason:p.reason,location:p.location,weekendDates:isWeekendWork?(p.weekendDates||[]):(v.weekendDates||[]),weekendHoursMap:isWeekendWork?weekendHoursMap:(v.weekendHoursMap||{})}:v);
+  const finalClockIn=isWeekendWork||p.dayStatus==='오전반차'?null:p.clockIn;
+  const finalClockOut=isWeekendWork||p.dayStatus==='오후반차'?null:p.clockOut;
+  S.votes=S.votes.map(v=>v.id===S.user.id?{...v,dayStatus:p.dayStatus,clockIn:finalClockIn,clockOut:finalClockOut,confirmed:true,reason:p.reason,location:p.location,weekendDates:isWeekendWork?(p.weekendDates||[]):(v.weekendDates||[]),weekendHoursMap:isWeekendWork?weekendHoursMap:(v.weekendHoursMap||{})}:v);
   let msg="오늘: "+p.dayStatus;
   if(p.reason)msg+="\n사유: "+p.reason;
   if(p.location)msg+="\n행선지: "+p.location;
@@ -649,8 +668,8 @@ function confirmVote(){
     msg+="\n주말 날짜: "+(p.weekendDates||[]).join(', ');
     msg+="\n근무시간: "+p.weekendHours+'시간';
   } else {
-    if(p.clockIn)msg+="\n출근: "+p.clockIn;
-    if(p.clockOut)msg+="\n퇴근: "+p.clockOut;
+    if(finalClockIn)msg+="\n출근: "+finalClockIn;
+    if(finalClockOut)msg+="\n퇴근: "+finalClockOut;
   }
   addChat("user",msg,"vote");
   addChat("bot","✅ "+S.user.name+"님 투표 확정!","confirm");
@@ -1498,8 +1517,8 @@ function rVote(root,mv,awayMe,exemptMe){
 
   // 주말 출근 날짜/시간
   if(p.dayStatus==='주말출근'){
-    const wk=h('div',{className:'poll'});wk.append(h('div',{className:'poll-hdr'},h('div',{className:'poll-title'},'======== 주말 출근 날짜 =========')));
-    wk.append(h('div',{className:'poll-opt',onClick:()=>{S.weekendForm.selected=[...(p.weekendDates||[])];S.weekendForm.hours=p.weekendHours||'';S.modal='weekend';render();}},h('div',{style:{display:'flex',alignItems:'center',gap:'9px'}},h('span',{style:{fontSize:'13px',fontWeight:600}},'📅 토/일 선택')),h('span',{style:{fontSize:'12px',color:'var(--gold)',fontWeight:600}},p.weekendDates?.length?p.weekendDates.length+'일':'클릭')));
+    const wk=h('div',{className:'poll'});wk.append(h('div',{className:'poll-hdr'},h('div',{className:'poll-title'},'======== 주말 출근 날짜/시간 =========')));
+    wk.append(h('div',{className:'poll-opt',onClick:()=>{S.weekendForm.selected=[...(p.weekendDates||[])];S.weekendForm.hours=p.weekendHours||'';S.modal='weekend';render();}},h('div',{style:{display:'flex',alignItems:'center',gap:'9px'}},h('span',{style:{fontSize:'13px',fontWeight:600}},'📅 토/일 선택 + 시간입력')),h('span',{style:{fontSize:'12px',color:'var(--gold)',fontWeight:600}},p.weekendDates?.length?p.weekendDates.length+'일':'클릭')));
     if(p.weekendDates?.length)wk.append(h('div',{style:{padding:'9px 15px',background:'#fffde7',fontSize:'11px',color:'#666'}},'등록: '+p.weekendDates.join(', ')+' / '+(p.weekendHours||'')+'시간'));
     root.append(wk);
   }
