@@ -868,12 +868,28 @@ function ensureCell(ws,r,c){
   return ws[addr];
 }
 function setCellStyleByValue(cell,val,type){
-  // 템플릿 서식을 최우선 유지한다.
+  const txt=String(val??'');
   if(!cell.s) cell.s={};
-  if(!cell.s.font) cell.s.font={name:'맑은 고딕',sz:10,color:{rgb:'000000'}};
-  if(!cell.s.alignment) cell.s.alignment={horizontal:'center',vertical:'center'};
-  if(type==='d' && !cell.z) cell.z='yyyy-mm-dd';
-  if(type==='n' && typeof val==='number' && cell.z==null) cell.z='0.0';
+  const baseFont=cell.s.font||{};
+  const baseAlign=cell.s.alignment||{horizontal:'center',vertical:'center'};
+  cell.s.font={name:baseFont.name||'맑은 고딕',sz:baseFont.sz||10,bold:!!baseFont.bold,color:baseFont.color||{rgb:'000000'}};
+  cell.s.alignment=baseAlign;
+
+  const fill = (rgb)=>({patternType:'solid',fgColor:{rgb}});
+  if(type==='n' && Number(val)>0){
+    cell.s.fill=fill('FCE4D6');
+  }else if(txt==='O'){
+    cell.s.fill=fill('E2F0D9');
+  }else if(txt==='연차'){
+    cell.s.fill=fill('F4CCCC');
+  }else if(txt==='오전반차' || txt==='오후반차'){
+    cell.s.fill=fill('FFF2CC');
+  }else if(txt==='국내출장' || txt==='해외출장'){
+    cell.s.fill=fill('D9EAF7');
+  }else if(txt==='※초과'){
+    cell.s.fill=fill('F4CCCC');
+    cell.s.font={...cell.s.font,bold:true,color:{rgb:'C00000'}};
+  }
 }
 function setCell(ws,r,c,val,type){
   const addr=XLSX.utils.encode_cell({r:r,c:c});
@@ -981,6 +997,22 @@ function cloneSheetObj(ws){
 function fmtSheetDate(date){
   return (date.getMonth()+1)+'월 '+date.getDate()+'일';
 }
+function getOvertimeExportDates(baseDate){
+  const today=new Date(baseDate.getFullYear(),baseDate.getMonth(),baseDate.getDate());
+  const dates=[today];
+  let cursor=new Date(today);
+  cursor.setDate(cursor.getDate()-1);
+
+  if(isOffDay(cursor)){
+    while(isOffDay(cursor)){
+      dates.unshift(new Date(cursor));
+      cursor.setDate(cursor.getDate()-1);
+    }
+  }else{
+    dates.unshift(new Date(cursor));
+  }
+  return dates;
+}
 function getExportRecord(member,date){
   const dk=dateKey(date);
   const todayKey=dateKey(S.simTime);
@@ -1016,32 +1048,19 @@ function getWeekendEntryForExport(rec,date){
   return hrs>0?{clockIn:'',clockOut:'',hours:hrs}:null;
 }
 function getWorkInfoForExport(member,date,rec){
-  const offday=isOffDay(date);
-  const defaultClockIn='08:30';
-  const defaultClockOut='17:30';
-
-  if(offday){
+  const weekend=isWeekend(date);
+  if(weekend){
     const item=getWeekendEntryForExport(rec,date);
     return {
-      // 휴무일(공휴일/토/일)은 템플릿 기본값 08:30 / 17:30 유지,
-      // 실제 근무 입력이 있으면 그 시간으로만 덮어쓴다.
-      clockIn:item?.clockIn||defaultClockIn,
-      clockOut:item?.clockOut||defaultClockOut,
+      clockIn:item?.clockIn||'',
+      clockOut:item?.clockOut||'',
       hours:item?.hours||0
     };
   }
-
-  const status=rec?.todayStatus||rec?.dayStatus||'';
-  const normalizedStatus=String(status||'').trim();
-  const treatAsWorked=(!normalizedStatus || normalizedStatus==='출근' || normalizedStatus==='미투표');
-  const clockIn=rec?.clockIn || (treatAsWorked ? defaultClockIn : '');
-  const clockOut=rec?.clockOut || (treatAsWorked ? defaultClockOut : '');
-  const hours=Math.round(Number((rec?.overtime!=null?rec.overtime:calcOvertime(clockIn,clockOut))||0)*2)/2;
-
   return {
-    clockIn,
-    clockOut,
-    hours
+    clockIn:rec?.clockIn||'',
+    clockOut:rec?.clockOut||'',
+    hours:Math.round(Number((rec?.overtime!=null?rec.overtime:calcOvertime(rec?.clockIn,rec?.clockOut))||0)*2)/2
   };
 }
 function getSummaryTextForExport(member,date,rec,workInfo){
@@ -1052,45 +1071,6 @@ function getSummaryTextForExport(member,date,rec,workInfo){
   if(rec?.todayStatus) return rec.todayStatus;
   if(rec?.dayStatus) return rec.dayStatus;
   return '';
-}
-
-function normalizeWorkText(status){
-  const st=String(status||'').trim();
-  if(!st) return '';
-  if(st==='출근') return '신규 모델 관련 업무 진행';
-  if(st==='연차') return '연차';
-  if(st==='오전반차') return '오전반차';
-  if(st==='오후반차') return '오후반차';
-  if(st==='미투표') return '신규 모델 관련 업무 진행';
-  return st;
-}
-function getDayStatusForExport(member,date,rec){
-  if(isAway(member.id,date)){
-    const ai=getAway(member.id,date);
-    if(ai?.type) return ai.type;
-  }
-  const st=String(rec?.todayStatus||rec?.dayStatus||'').trim();
-  if(st) return st;
-  // 미투표는 선반영: 평일은 출근, 토/일/공휴일은 휴무
-  if(isOffDay(date)) return '휴무';
-  return '출근';
-}
-function getPrevStatusTextForExport(member,targetDate){
-  const prev=new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()-1);
-  const prevRec=getExportRecord(member,prev);
-  if(isOffDay(prev)){
-    const prevInfo=getWorkInfoForExport(member,prev,prevRec);
-    return prevInfo.hours>0 ? '신규 모델 관련 업무 진행' : '휴무';
-  }
-  return normalizeWorkText(getDayStatusForExport(member,prev,prevRec));
-}
-function getTodayStatusTextForExport(member,targetDate,rec){
-  if(isOffDay(targetDate)){
-    const info=getWorkInfoForExport(member,targetDate,rec);
-    return info.hours>0 ? '신규 모델 관련 업무 진행' : '휴무';
-  }
-  const status=getDayStatusForExport(member,targetDate,rec);
-  return normalizeWorkText(status);
 }
 function clearSheetRange(ws,sr,er,sc,ec){
   for(let r=sr;r<=er;r++){
@@ -1106,61 +1086,49 @@ function clearSheetRange(ws,sr,er,sc,ec){
   }
 }
 function fillDailyOvertimeSheet(ws,targetDate,members){
-  const isOff=isOffDay(targetDate);
+  const isWknd=isWeekend(targetDate);
   setCell(ws,2,1,new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()),'d');
-  setCellStr(ws,2,5,isOff?'휴무일':'평일');
+  setCellStr(ws,2,5,isWknd?'주말':'평일');
 
-  // 날짜 시트는 템플릿의 기본 시간/수식/서식을 유지해야 하므로 전체 비우지 않는다.
-  // 필요한 텍스트/입력값만 선택적으로 덮어쓴다.
+  clearSheetRange(ws,6,23,1,21);
+
   members.forEach((m,i)=>{
     const rec=getExportRecord(m,targetDate);
     const info=getWorkInfoForExport(m,targetDate,rec);
+    const summary=getSummaryTextForExport(m,targetDate,rec,info);
     const row=6+i;
 
-    setCellNum(ws,row,1,i+1);                       // B No
-    setCellStr(ws,row,2,m.dept||m.part||'');        // C 팀
-    setCellStr(ws,row,3,m.name||'');                // D 이름
-    setCellStr(ws,row,4,m.rank||'');                // E 직위
-    setCellStr(ws,row,5,m.type||'정규');            // F 형태
+    setCellNum(ws,row,1,i+1);                    // B No
+    setCellStr(ws,row,2,m.part||m.dept||'');     // C 팀
+    setCellStr(ws,row,3,m.name||'');             // D 이름
+    setCellStr(ws,row,4,m.rank||'');             // E 직위
+    setCellStr(ws,row,5,m.type||'정규');         // F 형태
 
-    if(isOff){
-      if(info.hours>0){
-        setCellTime(ws,row,6,info.clockOut||'17:30');    // G
-        setCellTime(ws,row,8,info.clockIn||'08:30');     // I
-        setCellTime(ws,row,9,info.clockOut||'17:30');    // J
-      }
-      // 휴무일은 근무가 없으면 템플릿 기본값(08:30/17:30 및 수식) 그대로 둔다.
+    setCellTime(ws,row,6,info.clockOut||'');     // G 확정 퇴근
+    setCellTime(ws,row,8,info.clockIn||'');      // I 실제 출근
+    setCellTime(ws,row,9,info.clockOut||'');     // J 실제 퇴근
+    if(info.hours>0) setCellNum(ws,row,10,info.hours);  // K 연장시간
+    else setCellStr(ws,row,10,'');
+
+    if(!isWknd && info.clockIn){
+      const stdOut=(info.clockIn==='10:00')?'20:00':'17:30';
+      setCellTime(ws,row,11,stdOut);             // L 정상출근 기준 퇴근시간
     }else{
-      setCellTime(ws,row,6,info.clockOut||'');           // G 신청-퇴근
-      setCellTime(ws,row,8,info.clockIn||'');            // I 실제-출근
-      setCellTime(ws,row,9,info.clockOut||'');           // J 실제-퇴근
-
-      if(info.hours>0) setCellNum(ws,row,10,info.hours); // K
-      else setCellStr(ws,row,10,'');
-
-      if(info.clockIn){
-        let stdOut='17:30';
-        if(info.clockIn==='10:00') stdOut='20:00';
-        else if(info.clockIn==='10:30') stdOut='20:30';
-        else if(info.clockIn==='11:00') stdOut='21:00';
-        else if(info.clockIn==='13:30') stdOut='23:30';
-        setCellTime(ws,row,11,stdOut);                   // L
-      }else{
-        setCellStr(ws,row,11,'');
-      }
-
-      if(info.hours>0) setCellNum(ws,row,12,info.hours); // M
-      else setCellStr(ws,row,12,'');
-      setCellTime(ws,row,14,info.clockOut||'');          // O
-      if(info.hours>0) setCellNum(ws,row,16,info.hours); // Q
-      else setCellStr(ws,row,16,'');
+      setCellStr(ws,row,11,'');
     }
 
-    setCellStr(ws,row,13,getPrevStatusTextForExport(m,targetDate));      // N
-    setCellStr(ws,row,15,'');                                             // P
-    setCellStr(ws,row,17,getTodayStatusTextForExport(m,targetDate,rec));  // R
-    setCellStr(ws,row,18,'');                                             // S
-    setCellStr(ws,row,20,'');                                             // U 근무 8:30~17:30 문구 제거
+    if(info.hours>0) setCellNum(ws,row,12,info.hours);  // M 승인
+    else setCellStr(ws,row,12,'');
+
+    setCellStr(ws,row,13,summary);               // N 업무내용
+    setCellTime(ws,row,14,info.clockOut||'');    // O 담당자 신청 퇴근
+    if(info.hours>0) setCellNum(ws,row,15,info.hours);  // P 신청
+    else setCellStr(ws,row,15,'');
+    if(info.hours>0) setCellNum(ws,row,16,info.hours);  // Q 승인
+    else setCellStr(ws,row,16,'');
+    setCellStr(ws,row,17,summary);               // R 업무내용
+    setCellStr(ws,row,18,'');                    // S 잔여시간
+    setCellStr(ws,row,20,info.clockIn&&info.clockOut?(info.clockIn+'~'+info.clockOut):(info.clockIn||summary||'')); // U
   });
 
   ws['!ref']='A1:V24';
@@ -1186,14 +1154,7 @@ async function dlWeekly(officeFilter){
     const dateTemplateNames=sheetNames.filter(n=>/^\d+월 \d+일$/.test(String(n)));
 
     const today=new Date(S.simTime.getFullYear(),S.simTime.getMonth(),S.simTime.getDate());
-    let dateSheets=[];
-    if(today.getDay()===1){
-      const sat=new Date(today); sat.setDate(today.getDate()-2);
-      const sun=new Date(today); sun.setDate(today.getDate()-1);
-      dateSheets=[sat,sun,today];
-    }else{
-      dateSheets=[prevDay,today];
-    }
+    const dateSheets=getOvertimeExportDates(today);
 
     const nextSheets={};
     const nextNames=[];
@@ -1205,10 +1166,8 @@ async function dlWeekly(officeFilter){
 
     dateSheets.forEach((dt,idx)=>{
       const tplName=dateTemplateNames[Math.min(idx,dateTemplateNames.length-1)];
-      const baseWs=wb.Sheets[tplName];
-      if(!baseWs)return;
-      // 템플릿 색상/병합/서식을 최대한 유지하기 위해 시트를 복제 후 값만 채운다.
-      const ws=cloneSheetObj(baseWs);
+      const ws=wb.Sheets[tplName];
+      if(!ws)return;
       fillDailyOvertimeSheet(ws,dt,offVotes);
       const newName=fmtSheetDate(dt);
       nextSheets[newName]=ws;
@@ -1250,13 +1209,10 @@ async function dlWeekly(officeFilter){
           const col=3+di;
           const wdDate=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate());
           const rec=getExportRecord(v,wd);
-          const filledRec=(!isOffDay(wd) && !isAway(v.id,wd))
-            ? ({...(rec||{}), dayStatus:(rec?.dayStatus||rec?.todayStatus||'출근'), todayStatus:(rec?.todayStatus||rec?.dayStatus||'출근'), clockIn:(rec?.clockIn||'08:30'), clockOut:(rec?.clockOut||'17:30')})
-            : rec;
-          const info=getWorkInfoForExport(v,wd,filledRec);
+          const info=getWorkInfoForExport(v,wd,rec);
           if(wdDate>todayDate)return;
 
-          const st=(filledRec?.dayStatus||filledRec?.todayStatus||'');
+          const st=(rec?.dayStatus||rec?.todayStatus||'');
           if(st&&weeklyStatusTextSet.has(st)&&!info.hours){
             setCellStr(weeklyWs,row,col,st);
             return;
@@ -1272,7 +1228,7 @@ async function dlWeekly(officeFilter){
             return;
           }
           if(isOffDay(wd))return;
-          if(filledRec){
+          if(rec){
             if(st==='출근'||info.clockIn)setCellStr(weeklyWs,row,col,'O');
             else setCellStr(weeklyWs,row,col,'');
           }
@@ -1290,7 +1246,7 @@ async function dlWeekly(officeFilter){
     wb.Sheets=nextSheets;
     wb.SheetNames=nextNames;
     if(wb.Workbook && Array.isArray(wb.Workbook.Sheets)){
-      wb.Workbook.Sheets=nextNames.map(n=>({name:n,Hidden:(n===criteriaName?1:0)}));
+      wb.Workbook.Sheets=nextNames.map(n=>({name:n,Hidden:0}));
     }
 
     const fname='연장근무_AF_'+officeName+'_'+dateSheets.map(d=>String(d.getMonth()+1)+String(d.getDate()).padStart(2,'0')).join('_')+'.xlsx';
