@@ -903,7 +903,7 @@ function setCell(ws,r,c,val,type){
     cell.z='0.0';
   }
   }
-  setCellStyleByValue(cell,val,type||'s');
+  // 템플릿 서식을 그대로 유지하기 위해 스타일 강제 변경 제거
   if(!ws['!ref']){
     ws['!ref']=XLSX.utils.encode_range({s:{r:r,c:c},e:{r:r,c:c}});
   }
@@ -957,8 +957,7 @@ async function dlDaily(officeFilter){
       if(!away&&!v.todayStatus&&!v.clockIn&&!isExempt(v.id,targetDate)&&st!=='결근')setCellStr(ws,r,9,'O');
     });
     
-    const maxRow=7+offVotes.length;
-    ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:maxRow,c:29}});
+    // 템플릿 범위를 유지해 병합/색상/행서식이 그대로 보이도록 함
     
     const dn=['일','월','화','수','목','금','토'];
     const fname='일일근태_AF_'+officeName+'_'+targetDate.getFullYear()+String(targetDate.getMonth()+1).padStart(2,'0')+String(targetDate.getDate()).padStart(2,'0')+'('+dn[targetDate.getDay()]+').xlsx';
@@ -1144,20 +1143,21 @@ async function dlWeekly(officeFilter){
       const sun=new Date(today); sun.setDate(today.getDate()-1);
       dateSheets=[sat,sun,today];
     }else{
-      dateSheets=[prevDay,today];
+      // 화~금은 전일 시트만 다운로드
+      dateSheets=[prevDay];
     }
 
     const nextSheets={};
     const nextNames=[];
 
     if(criteriaName && wb.Sheets[criteriaName]){
-      nextSheets[criteriaName]=wb.Sheets[criteriaName];
+      nextSheets[criteriaName]=cloneSheetObj(wb.Sheets[criteriaName]);
       nextNames.push(criteriaName);
     }
 
     dateSheets.forEach((dt,idx)=>{
       const tplName=dateTemplateNames[Math.min(idx,dateTemplateNames.length-1)];
-      const ws=wb.Sheets[tplName];
+      const ws=cloneSheetObj(wb.Sheets[tplName]);
       if(!ws)return;
       fillDailyOvertimeSheet(ws,dt,offVotes);
       const newName=fmtSheetDate(dt);
@@ -1165,7 +1165,7 @@ async function dlWeekly(officeFilter){
       nextNames.push(newName);
     });
 
-    const weeklyWs=wb.Sheets[weeklyTemplateName];
+    const weeklyWs=cloneSheetObj(wb.Sheets[weeklyTemplateName]);
     setCellStr(weeklyWs,1,1,'연장근무 합계 12시간 이내로 ('+weekLabel+')');
     weekDates.forEach((wd,i)=>{
       const col=3+i;
@@ -1237,7 +1237,7 @@ async function dlWeekly(officeFilter){
     wb.Sheets=nextSheets;
     wb.SheetNames=nextNames;
     if(wb.Workbook && Array.isArray(wb.Workbook.Sheets)){
-      wb.Workbook.Sheets=nextNames.map(n=>({name:n,Hidden:0}));
+      wb.Workbook.Sheets=nextNames.map(n=>({name:n,Hidden:(n===criteriaName?1:0)}));
     }
 
     const fname='연장근무_AF_'+officeName+'_'+dateSheets.map(d=>String(d.getMonth()+1)+String(d.getDate()).padStart(2,'0')).join('_')+'.xlsx';
