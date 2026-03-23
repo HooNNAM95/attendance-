@@ -280,12 +280,12 @@ let S={
   simTime:new Date(),
   votes:MEMBERS.map(m=>({...m,dayStatus:null,clockIn:null,clockOut:null,weekendDates:[],reminders:[],juniorNotified:false,
     confirmed:false,reason:'',location:''})),
-  pending:{dayStatus:null,clockIn:null,clockOut:null,reason:'',location:'',weekendDates:[],weekendHours:''},
+  pending:{dayStatus:null,clockIn:null,clockOut:null,reason:'',location:'',weekendDates:[],weekendHours:'',weekendTimeMap:{}},
   awayPeriods:JSON.parse(localStorage.getItem('away')||'[]'),
   chatLog:[],
   running:false,modal:null,
   awayForm:{memberId:"GN01",type:"해외출장",from:"",to:"",memo:""},
-  weekendForm:{selected:[],hours:'',memo:''},
+  weekendForm:{selected:[],entries:{},memo:''},
   notifOk:typeof Notification!=='undefined'&&Notification.permission==="granted",notifDismissed:false,
   editing:false,
   etcOpen:false,
@@ -327,7 +327,7 @@ function saveDayRecord(){
       const data={id:v.id,name:v.name,dept:v.dept,part:v.part||v.dept,rank:v.rank||'',type:v.type||'정규',office:v.office,
         dayStatus:v.dayStatus||null,todayStatus:v.todayStatus||null,clockIn:v.clockIn||null,clockOut:v.clockOut||null,
         reason:v.reason||'',location:v.location||'',overtime:calcOvertime(v.clockIn,v.clockOut),
-        weekendDates:v.weekendDates||[],weekendHoursMap:v.weekendHoursMap||{},junior:v.junior||false};
+        weekendDates:v.weekendDates||[],weekendHoursMap:v.weekendHoursMap||{},weekendTimeMap:v.weekendTimeMap||{},junior:v.junior||false};
       fbSaveVote(v.id,dayKey,data);
     }
     if(v.todayStatus){
@@ -343,7 +343,7 @@ function saveDayRecord(){
   const record=S.votes.map(v=>({id:v.id,name:v.name,dept:v.dept,part:v.part||v.dept,rank:v.rank||'',type:v.type||'정규',office:v.office,
     dayStatus:v.dayStatus,todayStatus:v.todayStatus||null,clockIn:v.clockIn,clockOut:v.clockOut,
     reason:v.reason,location:v.location,overtime:calcOvertime(v.clockIn,v.clockOut),
-    weekendDates:v.weekendDates,weekendHoursMap:v.weekendHoursMap||{},junior:v.junior}));
+    weekendDates:v.weekendDates,weekendHoursMap:v.weekendHoursMap||{},weekendTimeMap:v.weekendTimeMap||{},junior:v.junior}));
   localStorage.setItem('day_'+dayKey,JSON.stringify(record));
   let weekIndex=JSON.parse(localStorage.getItem('week_'+weekKey)||'[]');
   if(!weekIndex.includes(dayKey))weekIndex.push(dayKey);weekIndex.sort();
@@ -485,7 +485,7 @@ function reloadVotes(){
         reminders:[],juniorNotified:false};
     }
     if(existing)return{...existing,...m};
-    return{...m,dayStatus:null,todayStatus:null,clockIn:null,clockOut:null,weekendDates:[],weekendHoursMap:{},reminders:[],juniorNotified:false,confirmed:false,reason:'',location:''};
+    return{...m,dayStatus:null,todayStatus:null,clockIn:null,clockOut:null,weekendDates:[],weekendHoursMap:{},weekendTimeMap:{},reminders:[],juniorNotified:false,confirmed:false,reason:'',location:''};
   });
   
   // Firebase에서 실시간 동기화 (다른 사람 투표도 반영)
@@ -498,7 +498,7 @@ function reloadVotes(){
       if(fbRec&&!v.confirmed){
         changed=true;
         return{...v,dayStatus:fbRec.dayStatus||v.dayStatus,clockIn:fbRec.clockIn||v.clockIn,clockOut:fbRec.clockOut||v.clockOut,
-          todayStatus:fbRec.todayStatus||v.todayStatus,weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
+          todayStatus:fbRec.todayStatus||v.todayStatus,weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
           confirmed:!!(fbRec.dayStatus||fbRec.clockIn)};
       }
       return v;
@@ -506,7 +506,7 @@ function reloadVotes(){
     // localStorage 캐시 업데이트
     const record=S.votes.map(v=>({id:v.id,name:v.name,dept:v.dept,part:v.part||v.dept,rank:v.rank||'',type:v.type||'정규',office:v.office,
       dayStatus:v.dayStatus,todayStatus:v.todayStatus||null,clockIn:v.clockIn,clockOut:v.clockOut,
-      reason:v.reason,location:v.location,overtime:calcOvertime(v.clockIn,v.clockOut),weekendDates:v.weekendDates||[],weekendHoursMap:v.weekendHoursMap||{},junior:v.junior}));
+      reason:v.reason,location:v.location,overtime:calcOvertime(v.clockIn,v.clockOut),weekendDates:v.weekendDates||[],weekendHoursMap:v.weekendHoursMap||{},weekendTimeMap:v.weekendTimeMap||{},junior:v.junior}));
     localStorage.setItem('day_'+dayKey,JSON.stringify(record));
     if(changed)render();
   });
@@ -535,7 +535,7 @@ function reloadVotes(){
           changed=true;
           return{...v,dayStatus:newDS,clockIn:newCI,clockOut:newCO,todayStatus:newTS,
             reason:fbRec.reason||'',location:fbRec.location||'',
-            weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},confirmed:!!(newDS||newCI)};
+            weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},confirmed:!!(newDS||newCI)};
         }
       }
       return v;
@@ -543,7 +543,7 @@ function reloadVotes(){
     if(changed){
       const record=S.votes.map(v=>({id:v.id,name:v.name,dept:v.dept,part:v.part||v.dept,rank:v.rank||'',type:v.type||'정규',office:v.office,
         dayStatus:v.dayStatus,todayStatus:v.todayStatus||null,clockIn:v.clockIn,clockOut:v.clockOut,
-        reason:v.reason,location:v.location,overtime:calcOvertime(v.clockIn,v.clockOut),weekendDates:v.weekendDates||[],weekendHoursMap:v.weekendHoursMap||{},junior:v.junior}));
+        reason:v.reason,location:v.location,overtime:calcOvertime(v.clockIn,v.clockOut),weekendDates:v.weekendDates||[],weekendHoursMap:v.weekendHoursMap||{},weekendTimeMap:v.weekendTimeMap||{},junior:v.junior}));
       localStorage.setItem('day_'+dayKey,JSON.stringify(record));
       render();
     }
@@ -606,7 +606,7 @@ function login(){
   const found=members.find(m=>m.name===name&&m.id.toLowerCase()===id.toLowerCase());
   if(found){
     S.user=found;S.screen="main";S.authErr="";S.awayForm.memberId=found.id;
-    S.pending={dayStatus:null,clockIn:null,clockOut:null,reason:'',location:'',weekendDates:[],weekendHours:''};S.editing=false;
+    S.pending={dayStatus:null,clockIn:null,clockOut:null,reason:'',location:'',weekendDates:[],weekendHours:'',weekendTimeMap:{}};S.editing=false;
     // 로그인 정보 저장
     localStorage.setItem('savedName',name);
     localStorage.setItem('savedId',id);
@@ -624,6 +624,7 @@ function selectDayStatus(key){
   if(key!=='주말출근'){
     S.pending.weekendDates=[];
     S.pending.weekendHours='';
+    S.pending.weekendTimeMap={};
   }
   if(key==='오후반차'){
     S.pending.clockOut=null;
@@ -647,8 +648,12 @@ function confirmVote(){
   const needClock=!opt?.exempt||p.dayStatus==='오후반차'||p.dayStatus==='외근'||p.dayStatus==='직출';
 
   if(hasWeekendEntry){
-    const wh=Number(p.weekendHours);
-    if(!Number.isFinite(wh)||wh<=0){alert('주말 근무 시간을 입력해주세요!');return;}
+    const weekendMap=p.weekendTimeMap||{};
+    for(const d of (p.weekendDates||[])){
+      const item=weekendMap[d]||{};
+      const wh=calcHoursBetween(item.clockIn,item.clockOut);
+      if(!(item.clockIn&&item.clockOut&&wh>0)){alert(d+' 주말 근무 시간을 정확히 입력해주세요!');return;}
+    }
   }
   if(p.dayStatus==='주말출근'&&!hasWeekendEntry){alert('주말 출근 날짜를 선택해주세요!');return;}
   if(p.dayStatus==='오전반차'&&!p.clockOut){alert('퇴근 시간을 선택해주세요!');return;}
@@ -657,15 +662,27 @@ function confirmVote(){
 
   const cur=S.votes.find(v=>v.id===S.user.id)||{};
   let weekendHoursMap=cur.weekendHoursMap||{};
+  let weekendTimeMap=cur.weekendTimeMap||{};
   let weekendDates=cur.weekendDates||[];
 
   if(hasWeekendEntry){
     weekendHoursMap={};
-    const wh=Math.round(Number(p.weekendHours)*2)/2;
-    (p.weekendDates||[]).forEach(d=>{weekendHoursMap[d]=wh;});
-    weekendDates=[...(p.weekendDates||[])];
+    weekendTimeMap={};
+    const srcMap=p.weekendTimeMap||{};
+    (p.weekendDates||[]).forEach(d=>{
+      const item=srcMap[d]||{};
+      const cin=item.clockIn||'';
+      const cout=item.clockOut||'';
+      const wh=Math.round(Number(item.hours||0)*2)/2;
+      if(cin&&cout&&wh>0){
+        weekendHoursMap[d]=wh;
+        weekendTimeMap[d]={clockIn:cin,clockOut:cout,hours:wh};
+      }
+    });
+    weekendDates=[...(p.weekendDates||[])].filter(d=>weekendTimeMap[d]);
   } else if((p.weekendDates||[]).length===0 && (p.weekendHours||'')===''){
     weekendHoursMap={};
+    weekendTimeMap={};
     weekendDates=[];
   }
 
@@ -682,15 +699,19 @@ function confirmVote(){
     reason:p.reason,
     location:p.location,
     weekendDates:weekendDates,
-    weekendHoursMap:weekendHoursMap
+    weekendHoursMap:weekendHoursMap,
+    weekendTimeMap:weekendTimeMap
   }:v);
 
   let msg="오늘: "+finalDayStatus;
   if(p.reason)msg+="\n사유: "+p.reason;
   if(p.location)msg+="\n행선지: "+p.location;
   if(hasWeekendEntry){
-    msg+="\n주말 날짜: "+(p.weekendDates||[]).join(', ');
-    msg+="\n근무시간: "+p.weekendHours+'시간';
+    const weekendLines=(p.weekendDates||[]).map(d=>{
+      const item=(p.weekendTimeMap||{})[d]||{};
+      return d+' '+(item.clockIn||'')+'~'+(item.clockOut||'')+' ('+(item.hours||0)+'시간)';
+    }).filter(Boolean);
+    if(weekendLines.length)msg+="\n주말근무:\n"+weekendLines.join('\n');
   }
   if(finalClockIn)msg+="\n출근: "+finalClockIn;
   if(finalClockOut)msg+="\n퇴근: "+finalClockOut;
@@ -698,13 +719,13 @@ function confirmVote(){
   addChat("user",msg,"vote");
   addChat("bot","✅ "+S.user.name+"님 투표 확정!","confirm");
   save();
-  S.pending={dayStatus:null,clockIn:null,clockOut:null,reason:'',location:'',weekendDates:[],weekendHours:''};S.editing=false;
+  S.pending={dayStatus:null,clockIn:null,clockOut:null,reason:'',location:'',weekendDates:[],weekendHours:'',weekendTimeMap:{}};S.editing=false;
   render();
 }
 
 function editVote(){
   const mv=myV();
-  S.pending={dayStatus:mv?.dayStatus||null,clockIn:mv?.clockIn||null,clockOut:mv?.clockOut||null,reason:mv?.reason||'',location:mv?.location||'',weekendDates:mv?.weekendDates||[],weekendHours:mv?.weekendHoursMap?String(Object.values(mv.weekendHoursMap)[0]||''):''};
+  S.pending={dayStatus:mv?.dayStatus||null,clockIn:mv?.clockIn||null,clockOut:mv?.clockOut||null,reason:mv?.reason||'',location:mv?.location||'',weekendDates:mv?.weekendDates||[],weekendHours:'',weekendTimeMap:mv?.weekendTimeMap||{}};
   S.editing=true;
   render();
 }
@@ -718,16 +739,39 @@ function setDayStatus(key){
 }
 function voteClockIn(t){S.votes=S.votes.map(v=>v.id===S.user.id?{...v,clockIn:t}:v);addChat("user","출근: "+t,"vote");addChat("bot","✅ 출근 "+t+" 완료!","confirm");save();render();}
 function voteClockOut(t){S.votes=S.votes.map(v=>v.id===S.user.id?{...v,clockOut:t}:v);addChat("user","퇴근: "+t,"vote");addChat("bot","✅ 퇴근 "+t+" 완료!","confirm");save();render();}
+function calcHoursBetween(cin,cout){
+  if(!cin||!cout)return 0;
+  const [ih,im]=String(cin).split(':').map(Number);
+  const [oh,om]=String(cout).split(':').map(Number);
+  if([ih,im,oh,om].some(v=>!Number.isFinite(v)))return 0;
+  const mins=(oh*60+om)-(ih*60+im);
+  if(mins<=0)return 0;
+  return Math.round((mins/60)*2)/2;
+}
 function submitWeekend(){
-  const dates=(S.weekendForm.selected||[]).filter(Boolean);
-  const hours=Math.round(Number(S.weekendForm.hours||0)*2)/2;
-  if(!dates.length){alert('주말 날짜를 선택해주세요.');return;}
-  if(!Number.isFinite(hours)||hours<=0){alert('근무 시간을 입력해주세요.');return;}
+  const entries=S.weekendForm.entries||{};
+  const dates=Object.keys(entries).filter(d=>{
+    const item=entries[d]||{};
+    return !!(item.clockIn&&item.clockOut);
+  }).sort();
+  if(!dates.length){alert('주말 날짜별 출근/퇴근 시간을 입력해주세요.');return;}
+  const weekendTimeMap={};
+  for(const d of dates){
+    const item=entries[d]||{};
+    const hours=calcHoursBetween(item.clockIn,item.clockOut);
+    if(hours<=0){
+      alert(d+' 시간 입력이 올바르지 않습니다.\n퇴근 시간은 출근 시간보다 늦어야 합니다.');
+      return;
+    }
+    weekendTimeMap[d]={clockIn:item.clockIn,clockOut:item.clockOut,hours:hours};
+  }
   S.pending.weekendDates=dates;
-  S.pending.weekendHours=String(hours);
-  addChat("user","주말출근: "+dates.join(", ")+" / "+hours+"시간","vote");
-  addChat("bot","💼 등록!\n"+dates.join(", ")+"\n⏱️ "+hours+"시간","confirm");
-  S.modal=null;S.weekendForm={selected:[...dates],hours:String(hours),memo:''};render();
+  S.pending.weekendHours='';
+  S.pending.weekendTimeMap=weekendTimeMap;
+  const lines=dates.map(d=>d+' '+weekendTimeMap[d].clockIn+'~'+weekendTimeMap[d].clockOut+' ('+weekendTimeMap[d].hours+'시간)');
+  addChat("user","주말출근:\n"+lines.join("\n"),"vote");
+  addChat("bot","💼 등록!\n"+lines.join("\n"),"confirm");
+  S.modal=null;S.weekendForm={selected:[...dates],entries:JSON.parse(JSON.stringify(entries)),memo:''};render();
 }
 function submitAway(){if(!S.awayForm.from||!S.awayForm.to)return;const a={...S.awayForm,id:Date.now(),registeredBy:S.user.name};S.awayPeriods.push(a);const t=getMembers().find(m=>m.id===a.memberId);addChat("bot","✈️ 부재 등록!\n👤 "+t?.name+" ("+t?.office+")\n📋 "+a.type+"\n📅 "+a.from+" ~ "+a.to+(a.memo?"\n📝 "+a.memo:"")+"\n\n⏸️ 기간 내 알림 자동 면제","system");S.modal=null;save();render();}
 function deleteAway(id){S.awayPeriods=S.awayPeriods.filter(a=>a.id!==id);save();render();}
@@ -1449,8 +1493,8 @@ function rVote(root,mv,awayMe,exemptMe){
       mv.clockIn?h('div',{style:{fontSize:'13px',color:'#2e7d32',marginBottom:'4px'}},'🕐 출근: '+mv.clockIn):null,
       mv.clockOut?h('div',{style:{fontSize:'13px',color:'#1565c0',marginBottom:'4px'}},'🕐 퇴근: '+mv.clockOut):null,
       (()=>{const ot=calcOvertime(mv.clockIn,mv.clockOut);return ot>0?h('div',{style:{fontSize:'14px',color:'#c62828',fontWeight:800,marginBottom:'4px',padding:'6px 12px',background:'#ffebee',borderRadius:'8px',display:'inline-block'}},'⏱️ 연장근무: '+ot+'시간'):null;})(),
-      mv.weekendDates?.length?h('div',{style:{fontSize:'12px',color:'#f59e0b',marginBottom:'4px'}},'📅 주말: '+mv.weekendDates.join(', ')):null,
-      mv.weekendDates?.length?h('button',{className:'btn',style:{marginTop:'6px',padding:'8px 10px',fontSize:'11px',borderRadius:'8px',background:'#fff8e1',color:'#8d6e63',fontWeight:700},onClick:()=>{S.pending={dayStatus:mv?.dayStatus||null,clockIn:mv?.clockIn||null,clockOut:mv?.clockOut||null,reason:mv?.reason||'',location:mv?.location||'',weekendDates:mv?.weekendDates||[],weekendHours:mv?.weekendHoursMap?String(Object.values(mv.weekendHoursMap)[0]||''):''};S.weekendForm.selected=[...(mv?.weekendDates||[])];S.weekendForm.hours=mv?.weekendHoursMap?String(Object.values(mv.weekendHoursMap)[0]||''):'';S.modal='weekend';render();}},'주말출근 수정'):null,
+      mv.weekendDates?.length?h('div',{style:{fontSize:'12px',color:'#f59e0b',marginBottom:'4px',textAlign:'left',display:'inline-block'}},['📅 주말근무', h('div',{style:{marginTop:'4px'}}, ...(mv.weekendDates||[]).map(d=>h('div',{style:{marginTop:'2px'}}, d+' '+((mv.weekendTimeMap&&mv.weekendTimeMap[d]?.clockIn)||'')+'~'+((mv.weekendTimeMap&&mv.weekendTimeMap[d]?.clockOut)||'')+' ('+((mv.weekendTimeMap&&mv.weekendTimeMap[d]?.hours)||getWeekendHours(mv,new Date(d)))+'시간)')))]):null,
+      mv.weekendDates?.length?h('button',{className:'btn',style:{marginTop:'6px',padding:'8px 10px',fontSize:'11px',borderRadius:'8px',background:'#fff8e1',color:'#8d6e63',fontWeight:700},onClick:()=>{S.pending={dayStatus:mv?.dayStatus||null,clockIn:mv?.clockIn||null,clockOut:mv?.clockOut||null,reason:mv?.reason||'',location:mv?.location||'',weekendDates:mv?.weekendDates||[],weekendHours:'',weekendTimeMap:mv?.weekendTimeMap||{}};S.weekendForm.selected=[...(mv?.weekendDates||[])];S.weekendForm.entries=JSON.parse(JSON.stringify(mv?.weekendTimeMap||{}));S.modal='weekend';render();}},'주말출근 수정'):null,
       h('div',{style:{marginTop:'16px',paddingTop:'14px',borderTop:'1px solid #eee'}}),
       h('button',{className:'btn',style:{padding:'12px 32px',borderRadius:'11px',background:'#f5f5f5',color:'#555',fontSize:'14px',fontWeight:700},onClick:editVote},'✏️ 수정하기')
     ));
@@ -1549,14 +1593,14 @@ function rVote(root,mv,awayMe,exemptMe){
       h('div',{className:'poll-title'},'======== 주말출근 별도 등록 ========='),
       h('div',{style:{fontSize:'10px',color:'#999',marginTop:'4px'}},'금요일 근태 투표와 별개로 토/일 근무시간만 따로 등록합니다.')
     ));
-    wk.append(h('div',{className:'poll-opt',onClick:()=>{S.weekendForm.selected=[...(p.weekendDates||[])];S.weekendForm.hours=p.weekendHours||'';S.modal='weekend';render();}},
+    wk.append(h('div',{className:'poll-opt',onClick:()=>{S.weekendForm.selected=[...(p.weekendDates||[])];S.weekendForm.entries=JSON.parse(JSON.stringify(p.weekendTimeMap||{}));S.modal='weekend';render();}},
       h('div',{style:{display:'flex',alignItems:'center',gap:'9px'}},
-        h('span',{style:{fontSize:'13px',fontWeight:600}},'📅 토/일 선택 + 시간입력')
+        h('span',{style:{fontSize:'13px',fontWeight:600}},'📅 토/일별 출근·퇴근 입력')
       ),
       h('span',{style:{fontSize:'12px',color:'var(--gold)',fontWeight:600}},p.weekendDates?.length?p.weekendDates.length+'일':'클릭')
     ));
     if(p.weekendDates?.length){
-      wk.append(h('div',{style:{padding:'9px 15px',background:'#fffde7',fontSize:'11px',color:'#666'}},'등록: '+p.weekendDates.join(', ')+' / '+(p.weekendHours||'')+'시간'));
+      wk.append(h('div',{style:{padding:'9px 15px',background:'#fffde7',fontSize:'11px',color:'#666'}},['등록:', ...(p.weekendDates||[]).map(d=>h('div',{style:{marginTop:'3px'}}, d+' '+((p.weekendTimeMap&&p.weekendTimeMap[d]?.clockIn)||'')+'~'+((p.weekendTimeMap&&p.weekendTimeMap[d]?.clockOut)||'')+' ('+((p.weekendTimeMap&&p.weekendTimeMap[d]?.hours)||'')+'시간)'))]));
     } else {
       wk.append(h('div',{style:{padding:'9px 15px',background:'#fafafa',fontSize:'11px',color:'#999'}},'주말 근무 예정이 없으면 비워두세요.'));
     }
@@ -2313,19 +2357,56 @@ function rModal(root){
   }
   if(S.modal==='weekend'){
     box.append(h('h2',null,'💼 주말 출근'));
-    box.append(h('div',{className:'sub'},'토요일/일요일 복수선택 + 근무시간 입력'));
+    box.append(h('div',{className:'sub'},'토요일/일요일별로 출근·퇴근 시간을 각각 입력하세요.'));
     const options=getNearbyWeekendOptions(S.simTime);
+    const selectedSet=new Set(S.weekendForm.selected||[]);
     box.append(h('label',null,'날짜 선택'));
     const list=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'12px'}});
     options.forEach(dt=>{
       const dk=dateKey(dt);
-      const selected=(S.weekendForm.selected||[]).includes(dk);
-      list.append(h('button',{type:'button',className:'btn',style:{padding:'10px 8px',borderRadius:'10px',border:selected?'2px solid #003B7B':'1px solid #ddd',background:selected?'#E3F2FD':'white',color:selected?'#003B7B':'#555',fontSize:'11px',fontWeight:700},onClick:()=>{const arr=new Set(S.weekendForm.selected||[]);if(arr.has(dk))arr.delete(dk);else arr.add(dk);S.weekendForm.selected=[...arr].sort();render();}},(dt.getMonth()+1)+'/'+dt.getDate()+' ('+['일','월','화','수','목','금','토'][dt.getDay()]+')'));
+      const selected=selectedSet.has(dk);
+      list.append(h('button',{type:'button',className:'btn',style:{padding:'10px 8px',borderRadius:'10px',border:selected?'2px solid #003B7B':'1px solid #ddd',background:selected?'#E3F2FD':'white',color:selected?'#003B7B':'#555',fontSize:'11px',fontWeight:700},onClick:()=>{
+        const arr=new Set(S.weekendForm.selected||[]);
+        if(arr.has(dk)){
+          arr.delete(dk);
+          if(S.weekendForm.entries)delete S.weekendForm.entries[dk];
+        }else{
+          arr.add(dk);
+          S.weekendForm.entries=S.weekendForm.entries||{};
+          if(!S.weekendForm.entries[dk])S.weekendForm.entries[dk]={clockIn:'',clockOut:''};
+        }
+        S.weekendForm.selected=[...arr].sort();
+        render();
+      }},(dt.getMonth()+1)+'/'+dt.getDate()+' ('+['일','월','화','수','목','금','토'][dt.getDay()]+')'));
     });
     box.append(list);
-    box.append(h('label',null,'근무 시간'));
-    box.append(h('input',{type:'number',step:'0.5',min:'0.5',placeholder:'예) 8 또는 4.5',value:S.weekendForm.hours,onInput:e=>{S.weekendForm.hours=e.target.value;}}));
-    box.append(h('div',{className:'info-box',style:{background:'#fffde7',color:'#666'}},'선택한 주말 날짜마다 입력한 시간이 그대로 반영되며, 모두 연장근무에 포함됩니다.'));
+
+    const selectedDates=[...(S.weekendForm.selected||[])].sort();
+    if(selectedDates.length){
+      box.append(h('label',null,'일자별 시간 입력'));
+      const wrap=h('div',{style:{display:'flex',flexDirection:'column',gap:'10px',marginBottom:'12px'}});
+      selectedDates.forEach(dk=>{
+        const item=(S.weekendForm.entries&&S.weekendForm.entries[dk])||{clockIn:'',clockOut:''};
+        const hours=calcHoursBetween(item.clockIn,item.clockOut);
+        wrap.append(h('div',{style:{padding:'10px',border:'1px solid #eee',borderRadius:'12px',background:'#fafafa'}},
+          h('div',{style:{fontSize:'12px',fontWeight:800,color:'#333',marginBottom:'8px'}}, dk),
+          h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}},
+            h('div',null,
+              h('div',{style:{fontSize:'11px',color:'#666',marginBottom:'4px'}},'출근'),
+              h('input',{type:'time',value:item.clockIn||'',onInput:e=>{S.weekendForm.entries=S.weekendForm.entries||{};S.weekendForm.entries[dk]={...(S.weekendForm.entries[dk]||{}),clockIn:e.target.value};}})
+            ),
+            h('div',null,
+              h('div',{style:{fontSize:'11px',color:'#666',marginBottom:'4px'}},'퇴근'),
+              h('input',{type:'time',value:item.clockOut||'',onInput:e=>{S.weekendForm.entries=S.weekendForm.entries||{};S.weekendForm.entries[dk]={...(S.weekendForm.entries[dk]||{}),clockOut:e.target.value};}})
+            )
+          ),
+          h('div',{style:{fontSize:'11px',color:hours>0?'#2e7d32':'#999',marginTop:'8px',fontWeight:700}},hours>0?'계산 시간: '+hours+'시간':'출근/퇴근을 모두 입력하세요.')
+        ));
+      });
+      box.append(wrap);
+    }
+
+    box.append(h('div',{className:'info-box',style:{background:'#fffde7',color:'#666'}},'토요일, 일요일 각각 입력한 출근~퇴근 시간으로 계산되며 모두 연장근무에 포함됩니다.'));
     const btns=h('div',{style:{display:'flex',gap:'7px',marginTop:'4px'}});
     btns.append(h('button',{className:'btn',style:{flex:1,padding:'13px',background:'#f5f5f5',color:'#666',borderRadius:'11px'},onClick:()=>{S.modal=null;render();}},'취소'));
     btns.append(h('button',{className:'btn btn-brown',style:{flex:2,padding:'13px',borderRadius:'11px'},onClick:submitWeekend},'등록'));
