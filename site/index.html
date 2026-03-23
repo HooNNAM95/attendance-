@@ -1126,15 +1126,20 @@ function fillDailyOvertimeSheet(ws,targetDate,members){
     if(info.hours>0) setCellNum(ws,row,10,info.hours);   // K 연장시간
     else setCellStr(ws,row,10,'');
 
-    if(!isWknd && info.clockIn){
+    if(info.clockIn){
       let stdOut='17:30';
-      if(info.clockIn==='10:00') stdOut='20:00';
-      else if(info.clockIn==='10:30') stdOut='20:30';
-      else if(info.clockIn==='11:00') stdOut='21:00';
-      else if(info.clockIn==='13:30') stdOut='23:30';
+      if(isWknd){
+        // 주말은 L열도 기본 17:30 표시, 실제 주말근무 입력이 있으면 퇴근시간으로 반영
+        stdOut = info.clockOut || '17:30';
+      }else{
+        if(info.clockIn==='10:00') stdOut='20:00';
+        else if(info.clockIn==='10:30') stdOut='20:30';
+        else if(info.clockIn==='11:00') stdOut='21:00';
+        else if(info.clockIn==='13:30') stdOut='23:30';
+      }
       setCellTime(ws,row,11,stdOut);                // L 정상출근 기준 퇴근시간
     }else{
-      setCellStr(ws,row,11,'');
+      setCellStr(ws,row,11,isWknd ? '17:30' : '');
     }
 
     if(info.hours>0) setCellNum(ws,row,12,info.hours);   // M 승인
@@ -2745,5 +2750,89 @@ function rModal(root){
 })();
 render();
 </script>
+
+<script>
+// ===== ADMIN MODE ADDITION =====
+const ADMIN_PW = "jysol";
+
+function enterAdminMode(){
+  const pw = prompt("관리자 비밀번호 입력");
+  if(pw === ADMIN_PW){
+    S.adminMode = true;
+    render();
+  } else {
+    alert("비밀번호 틀림");
+  }
+}
+
+function renderAdmin(){
+  const wrap = document.createElement('div');
+  wrap.innerHTML = "<h2>관리자 모드</h2>";
+
+  const dateInput = document.createElement('input');
+  dateInput.type = "date";
+  dateInput.value = new Date().toISOString().slice(0,10);
+  dateInput.onchange = (e)=>{
+    S.simTime = new Date(e.target.value);
+    reloadVotes();
+    render();
+  };
+  wrap.appendChild(dateInput);
+
+  S.votes.forEach(v=>{
+    const row = document.createElement('div');
+    row.style.border="1px solid #ddd";
+    row.style.margin="5px";
+    row.style.padding="5px";
+
+    row.innerHTML = `
+      <b>${v.name}</b>
+      <select onchange="this.closest('div')._v.dayStatus=this.value">
+        ${DAY_STATUS.map(s=>`<option value="${s.key}" ${v.dayStatus===s.key?'selected':''}>${s.key}</option>`).join('')}
+      </select>
+      <input placeholder="출근" value="${v.clockIn||''}" onchange="this.closest('div')._v.clockIn=this.value">
+      <input placeholder="퇴근" value="${v.clockOut||''}" onchange="this.closest('div')._v.clockOut=this.value">
+      <button onclick="saveAdmin(this)">저장</button>
+    `;
+    row._v = v;
+    wrap.appendChild(row);
+  });
+
+  return wrap;
+}
+
+function saveAdmin(btn){
+  const v = btn.closest('div')._v;
+  const dayKey = getDayKey(S.simTime);
+
+  fbSaveVote(v.id, dayKey, v);
+  fbSaveTodayStatus(v.id, dayKey, v.todayStatus||null);
+
+  alert("저장 완료");
+}
+
+const oldRender = render;
+render = function(){
+  if(S.adminMode){
+    const app = document.getElementById('app');
+    app.innerHTML = "";
+    app.appendChild(renderAdmin());
+    return;
+  }
+  oldRender();
+}
+
+// add button after load
+window.addEventListener("load", ()=>{
+  const btn = document.createElement("button");
+  btn.innerText = "관리자";
+  btn.style.position="fixed";
+  btn.style.top="10px";
+  btn.style.right="10px";
+  btn.onclick = enterAdminMode;
+  document.body.appendChild(btn);
+});
+</script>
+
 </body>
 </html>
