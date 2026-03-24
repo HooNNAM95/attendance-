@@ -2352,11 +2352,18 @@ function rStatus(root){
         else if(recWeekend>0){val=String(recWeekend);weekTotal+=recWeekend;valColor='#E65100';}
         else if(off){val='';}
         else if(dk===prevDk){
-          const ds=(dk===dateKey(S.simTime)?(v.todayStatus||v.dayStatus):v.dayStatus);
+          const isTodayCell = (dk===dateKey(S.simTime));
+          const ds=(isTodayCell?(v.todayStatus||v.dayStatus):v.dayStatus);
           const ot=calcOvertime(v.clockIn,v.clockOut);
-          if(ds&&ds!=='출근'){val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';}
-          else if(ot>0){val=String(ot);weekTotal+=ot;valColor='#E65100';}
-          else{val='O';valColor='#2e7d32';}
+
+          if(ds&&ds!=='출근'){
+            val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';
+          }else if(!isTodayCell && ot>0){
+            // 오늘 칸에는 연장근무 시간을 표시하지 않음
+            val=String(ot);weekTotal+=ot;valColor='#E65100';
+          }else{
+            val='O';valColor='#2e7d32';
+          }
         }
         else{const dayRec=localStorage.getItem('day_'+dk);if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(rr=>rr.id===v.id);if(rec){
           const ds=(rec.todayStatus||rec.dayStatus);
