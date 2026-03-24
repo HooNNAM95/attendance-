@@ -929,24 +929,32 @@ function setCellStyleByValue(cell,val,type){
 // ═══ 연장근무 주 연장근무 현황 시트 서식 ═══
 // ═══ 범위 밖 셀 초기화 ═══
 function clearOutside(ws,maxR,maxC){
-  const WHITE={font:FONT_DEFAULT,fill:{fgColor:{rgb:'FFFFFF'}},alignment:ALIGN_CENTER};
-  for(let r=0;r<=maxR+5;r++){
-    for(let c=0;c<=maxC+3;c++){
+  // 시트의 모든 영역을 확실히 흰색 배경으로 만듦
+  const WHITE_STYLE={font:{name:'맑은 고딕',sz:10,color:{rgb:'000000'}},fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'center',vertical:'center'}};
+  const totalR=Math.max(maxR+10,30);
+  const totalC=Math.max(maxC+5,20);
+  for(let r=0;r<=totalR;r++){
+    for(let c=0;c<=totalC;c++){
       const addr=XLSX.utils.encode_cell({r,c});
-      if(ws[addr]&&!ws[addr]._styled){
-        ws[addr].s=WHITE;
+      if(!ws[addr]){
+        // 셀이 없으면 새로 만들어서 흰 배경
+        ws[addr]={v:'',t:'s',s:{...WHITE_STYLE}};
+      } else if(!ws[addr]._styled){
+        // 셀이 있지만 스타일 안 된 것 → 흰 배경
+        ws[addr].s={...WHITE_STYLE};
       }
     }
   }
   // _styled 마커 정리
-  for(let r=0;r<=maxR+5;r++){
-    for(let c=0;c<=maxC+3;c++){
+  for(let r=0;r<=totalR;r++){
+    for(let c=0;c<=totalC;c++){
       const addr=XLSX.utils.encode_cell({r,c});
       if(ws[addr])delete ws[addr]._styled;
     }
   }
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:totalR,c:totalC}});
 }
-function markStyled(ws,r,c){const addr=XLSX.utils.encode_cell({r,c});if(ws[addr])ws[addr]._styled=true;}
+function markStyled(ws,r,c){const addr=XLSX.utils.encode_cell({r,c});if(ws[addr])ws[addr]._styled=true;else{ws[addr]={v:'',t:'s',_styled:true};}}
 
 // ═══ 연장근무 주 연장근무 현황 시트 서식 ═══
 function applyWeeklySummaryStyle(ws,dataLastRow){
@@ -1052,25 +1060,29 @@ function applyDailyOTStyle(ws,dataLastRow){
     markStyled(ws,r,c);
   }
   
-  // 데이터행 서식
+  // 데이터행 서식 (모든 셀 확실히 흰배경 + 해당 서식)
   const grayColSet=new Set([6,8,9,11,14]); // G,I,J,L,O
   for(let r=6;r<=dataLastRow;r++){
     for(let c=1;c<=17;c++){
       const addr=XLSX.utils.encode_cell({r,c});
       if(!ws[addr])ws[addr]={v:'',t:'s'};
+      const existFont=ws[addr].s?.font||{...FONT_DEFAULT};
+      const existAlign=ws[addr].s?.alignment||{...ALIGN_CENTER};
       if(c===7){
-        // H열은 테두리 없음
-        ws[addr].s={font:ws[addr].s?.font||FONT_DEFAULT,fill:{fgColor:{rgb:'FFFFFF'}},alignment:ws[addr].s?.alignment||ALIGN_CENTER};
+        // H열 흰배경 테두리 없음
+        ws[addr].s={font:existFont,fill:{fgColor:{rgb:'FFFFFF'}},alignment:existAlign};
       } else if(grayColSet.has(c)){
-        ws[addr].s={font:ws[addr].s?.font||FONT_DEFAULT,fill:{fgColor:{rgb:'F2F2F2'}},alignment:ws[addr].s?.alignment||ALIGN_CENTER,border:mkBorder(B_NONE,B_NONE,B_THIN,B_THIN)};
+        // 회색배경 좌우테두리만
+        ws[addr].s={font:existFont,fill:{fgColor:{rgb:'F2F2F2'}},alignment:existAlign,border:mkBorder(B_NONE,B_NONE,B_THIN,B_THIN)};
       } else {
-        if(!ws[addr].s||!ws[addr].s.fill)ws[addr].s={font:ws[addr].s?.font||FONT_DEFAULT,fill:{fgColor:{rgb:'FFFFFF'}},alignment:ws[addr].s?.alignment||ALIGN_CENTER,border:mkBorder(B_NONE,B_NONE,B_THIN,B_THIN)};
+        // 흰배경 좌우테두리
+        ws[addr].s={font:existFont,fill:{fgColor:{rgb:'FFFFFF'}},alignment:existAlign,border:mkBorder(B_NONE,B_NONE,B_THIN,B_THIN)};
       }
       markStyled(ws,r,c);
     }
   }
   
-  // B4:R(dataLastRow) 굵은 바깥쪽 테두리
+  // B4:R(dataLastRow) 굵은 바깥쪽 테두리 (데이터 범위 전체)
   for(let r=3;r<=dataLastRow;r++){
     for(let c=1;c<=17;c++){
       const addr=XLSX.utils.encode_cell({r,c});
@@ -1114,26 +1126,20 @@ function applyDailyAttendanceStyle(ws,dataLastRow){
     markStyled(ws,5,c);
   }
   
-  // B7:AD(dataLastRow) 좌우테두리
+  // B7:AD(dataLastRow) 흰배경 + 내부 얇은 테두리
   for(let r=6;r<=dataLastRow;r++){
     for(let c=1;c<=29;c++){
       const addr=XLSX.utils.encode_cell({r,c});
       if(!ws[addr])ws[addr]={v:'',t:'s'};
-      ws[addr].s={font:ws[addr].s?.font||FONT_DEFAULT,fill:{fgColor:{rgb:'FFFFFF'}},alignment:ws[addr].s?.alignment||ALIGN_CENTER,
-        border:mkBorder(B_NONE,B_NONE,B_THIN,B_THIN)};
-      markStyled(ws,r,c);
-    }
-  }
-  
-  // B7:AD(dataLastRow) 굵은 바깥쪽 테두리
-  for(let r=6;r<=dataLastRow;r++){
-    for(let c=1;c<=29;c++){
-      const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr])continue;
+      const existFont=ws[addr].s?.font||{...FONT_DEFAULT};
+      ws[addr].s={font:existFont,fill:{fgColor:{rgb:'FFFFFF'}},alignment:ALIGN_CENTER,
+        border:mkBorder(B_THIN,B_THIN,B_THIN,B_THIN)};
+      // 바깥 굵은 테두리
       if(r===6)ws[addr].s.border.top=B_THICK;
       if(r===dataLastRow)ws[addr].s.border.bottom=B_THICK;
       if(c===1)ws[addr].s.border.left=B_THICK;
       if(c===29)ws[addr].s.border.right=B_THICK;
+      markStyled(ws,r,c);
     }
   }
   
@@ -1208,8 +1214,9 @@ async function dlDaily(officeFilter){
     const maxRow=7+offVotes.length;
     ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:maxRow,c:29}});
     
-    // 서식 적용
-    applyDailyAttendanceStyle(ws,5+offVotes.length);
+    // 서식 적용 - 실제 데이터 마지막 행 (R7=row6부터 offVotes.length명)
+    const styleLastRow=6+offVotes.length-1; // 0-indexed 마지막 데이터 행
+    applyDailyAttendanceStyle(ws,styleLastRow);
     
     const dn=['일','월','화','수','목','금','토'];
     const fname='일일근태_AF_'+officeName+'_'+targetDate.getFullYear()+String(targetDate.getMonth()+1).padStart(2,'0')+String(targetDate.getDate()).padStart(2,'0')+'('+dn[targetDate.getDay()]+').xlsx';
@@ -2874,7 +2881,7 @@ async function dlHistoryDaily(dayKey,record){
       if(st&&STATUS_COL_MAP[st])setCellStr(ws,r-1,STATUS_COL_MAP[st]-1,'O');
     });
     ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:7+record.length,c:29}});
-    applyDailyAttendanceStyle(ws,5+record.length);
+    applyDailyAttendanceStyle(ws,6+record.length-1);
     XLSX.writeFile(wb,'일일근태_'+dayKey+'('+dn[d.getDay()]+').xlsx',{bookSST:true,bookType:'xlsx',cellStyles:true});
   }catch(e){
     // CSV 폴백
