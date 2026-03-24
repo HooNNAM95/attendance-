@@ -2745,9 +2745,11 @@ function rHistory(root){
       const tbl=h('div',{style:{background:'white',borderRadius:'14px',boxShadow:'0 1px 3px rgba(0,0,0,0.05)',overflow:'hidden',marginBottom:'10px'}});
       const grid6='1fr 42px 42px 50px 42px';
       const viewDate=new Date(S.historyView);
-      const vdLabel=(viewDate.getMonth()+1)+'/'+viewDate.getDate();
+      const prevDay=new Date(viewDate);prevDay.setDate(prevDay.getDate()-1);
+      const prevLabel=(prevDay.getMonth()+1)+'/'+prevDay.getDate();
+      const todayLabel=(viewDate.getMonth()+1)+'/'+viewDate.getDate();
       tbl.append(h('div',{style:{display:'grid',gridTemplateColumns:grid6,gap:'1px',padding:'4px 13px 0',alignItems:'center',textAlign:'center',fontSize:'9px',color:'#aaa'}},
-        h('span',null,''),h('span',null,vdLabel),h('span',null,vdLabel),h('span',null,vdLabel),h('span',null,vdLabel)));
+        h('span',null,''),h('span',null,prevLabel),h('span',null,prevLabel),h('span',null,todayLabel),h('span',null,prevLabel)));
       tbl.append(h('div',{style:{display:'grid',gridTemplateColumns:grid6,gap:'1px',padding:'2px 13px 6px',alignItems:'center',textAlign:'center',fontSize:'10px',background:'#fafafa',borderBottom:'1px solid #eee',fontWeight:800,color:'#888'}},
         h('span',{style:{textAlign:'left'}},'이름'),h('span',null,'출근'),h('span',null,'퇴근'),h('span',null,'상태'),h('span',{style:{color:'#E65100'}},'연장')));
       offRec.forEach(r=>{
