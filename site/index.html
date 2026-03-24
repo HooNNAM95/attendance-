@@ -2399,7 +2399,7 @@ function rStatus(root){
         let val='';let valColor='#ccc';
         const recWeekend=(dk===prevDk)?getWeekendHours(v,wd):(()=>{const dayRec=localStorage.getItem('day_'+dk);if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(rr=>rr.id===v.id);return getWeekendHours(rec,wd);}return 0;})();
         if(isAway(v.id,wd)&&recWeekend<=0){const awInfo=getAway(v.id,wd);const awType=awInfo?.type||'부재';val=awType.length>3?awType.slice(0,3):awType;valColor='#1565c0';}
-        else if(wdDate>todayDate){val='';}
+        else if(wdDate>=todayDate){val='';}
         else if(recWeekend>0){val=String(recWeekend);weekTotal+=recWeekend;valColor='#E65100';}
         else if(off){val='';}
         else if(dk===prevDk){
