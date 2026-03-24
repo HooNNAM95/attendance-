@@ -2509,11 +2509,29 @@ function rHistory(root){
         h('span',{style:{textAlign:'left'}},'이름'),h('span',null,'출근'),h('span',null,'퇴근'),h('span',null,'상태'),h('span',{style:{color:'#E65100'}},'연장')));
       offRec.forEach(r=>{
         const ot=r.overtime||0;
-        const row=h('div',{style:{display:'grid',gridTemplateColumns:grid6,gap:'1px',padding:'9px 13px',alignItems:'center',textAlign:'center',fontSize:'10px',borderBottom:'1px solid #f5f5f5'}});
+        const viewDate=new Date(S.historyView);
+        // id 또는 이름으로 부재 매칭
+        let away=isAway(r.id,viewDate);
+        let awInfo=away?getAway(r.id,viewDate):null;
+        // id 매칭 안 되면 이름으로 재시도
+        if(!away&&r.name){
+          const currentMember=getMembers().find(m=>m.name===r.name);
+          if(currentMember){
+            away=isAway(currentMember.id,viewDate);
+            awInfo=away?getAway(currentMember.id,viewDate):null;
+          }
+        }
+        // 상태: 부재 > todayStatus > dayStatus > 미선택
+        let displayStatus=away?(awInfo?.type||'부재'):(r.todayStatus||r.dayStatus||'미선택');
+        let stBg=away?'#e3f2fd':(displayStatus&&displayStatus!=='미선택'?'#e3f2fd':'#ffebee');
+        let stCl=away?'#1565c0':(displayStatus&&displayStatus!=='미선택'?'#1565c0':'#c62828');
+        if(displayStatus==='출근'){stBg='#e8f5e9';stCl='#2e7d32';}
+        
+        const row=h('div',{style:{display:'grid',gridTemplateColumns:grid6,gap:'1px',padding:'9px 13px',alignItems:'center',textAlign:'center',fontSize:'10px',borderBottom:'1px solid #f5f5f5',background:away?'#f0f7ff':'white'}});
         row.append(h('div',{style:{textAlign:'left',fontWeight:700}},r.name));
         row.append(h('span',{style:{color:r.clockIn?'#2e7d32':'#ddd',fontWeight:600}},r.clockIn||'—'));
         row.append(h('span',{style:{color:r.clockOut?'#1565c0':'#ddd',fontWeight:600}},r.clockOut||'—'));
-        row.append(h('span',null,h('span',{style:{fontSize:'9px',fontWeight:700,padding:'1px 3px',borderRadius:'3px',background:r.dayStatus?'#e3f2fd':'#ffebee',color:r.dayStatus?'#1565c0':'#c62828'}},r.dayStatus||'미선택')));
+        row.append(h('span',null,h('span',{style:{fontSize:'9px',fontWeight:700,padding:'1px 3px',borderRadius:'3px',background:stBg,color:stCl}},displayStatus)));
         row.append(h('span',{style:{color:ot>0?'#E65100':'#ddd',fontWeight:800}},ot>0?String(ot):'—'));
         tbl.append(row);
         if(r.reason||r.location)tbl.append(h('div',{style:{padding:'2px 13px 8px',fontSize:'10px',color:'#888',borderBottom:'1px solid #f5f5f5'}},r.reason?'📝 '+r.reason:'📍 '+r.location));
@@ -2600,7 +2618,18 @@ async function dlHistoryDaily(dayKey,record){
       setCellStr(ws,r-1,5,v.name);
       setCellStr(ws,r-1,6,v.rank||'');
       setCellStr(ws,r-1,7,v.type||'정규');
-      const st=v.dayStatus;
+      // 부재 체크 (id 또는 이름으로)
+      let awayStatus=null;
+      let checkId=v.id;
+      if(!isAway(checkId,d)){
+        const cm=getMembers().find(m=>m.name===v.name);
+        if(cm)checkId=cm.id;
+      }
+      if(isAway(checkId,d)){
+        const ai=getAway(checkId,d);
+        awayStatus=ai?.type||null;
+      }
+      const st=awayStatus||v.todayStatus||v.dayStatus;
       if(st&&STATUS_COL_MAP[st])setCellStr(ws,r-1,STATUS_COL_MAP[st]-1,'O');
     });
     ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:7+record.length,c:29}});
