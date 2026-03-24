@@ -928,30 +928,25 @@ function setCellStyleByValue(cell,val,type){
 
 // ═══ 연장근무 주 연장근무 현황 시트 서식 ═══
 // ═══ 범위 밖 셀 초기화 ═══
-// ═══ 배경 초기화: 스타일만 설정, 빈 셀은 만들지 않음 (경고 방지) ═══
+// ═══ 배경 초기화: 기존 셀만 흰색, 새 셀은 최소한만 생성 ═══
 function fillWhiteBG(ws,maxR,maxC){
   const W={font:{name:'맑은 고딕',sz:10,color:{rgb:'000000'}},fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'center',vertical:'center'}};
   for(let r=0;r<=maxR;r++){
     for(let c=0;c<=maxC;c++){
       const addr=XLSX.utils.encode_cell({r,c});
       if(ws[addr]){
-        // 기존 셀은 스타일만 흰색으로
-        ws[addr].s=W;
-      } else {
-        // 빈 셀은 스타일만 있는 빈 셀 (v 없이)
-        ws[addr]={t:'z',s:{...W}};
+        ws[addr].s={...W};
       }
     }
   }
 }
 function applyBorder(ws,r1,c1,r2,c2){
-  // r1~r2, c1~c2 범위: 내부 얇은 테두리 + 바깥 굵은 테두리
   const T={style:'thin',color:{rgb:'FF000000'}};
   const M={style:'medium',color:{rgb:'FF000000'}};
   for(let r=r1;r<=r2;r++){
     for(let c=c1;c<=c2;c++){
       const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr])ws[addr]={t:'z',s:{}};
+      if(!ws[addr])ws[addr]={v:'',t:'s',s:{}};
       if(!ws[addr].s)ws[addr].s={};
       ws[addr].s.border={
         top:(r===r1)?M:T,
@@ -975,7 +970,7 @@ function applyWeeklySummaryStyle(ws,dataLastRow){
   // B2:K2 타이틀 (셀합치기됨)
   for(let c=1;c<=10;c++){
     const addr=XLSX.utils.encode_cell({r:1,c});
-    if(!ws[addr])ws[addr]={t:'z'};
+    if(!ws[addr])ws[addr]={v:'',t:'s'};
     ws[addr].s={font:{name:'맑은 고딕',sz:11,bold:true,color:{rgb:'FF3C33'}},fill:{fgColor:{rgb:'FFF2CC'}},alignment:{horizontal:'center',vertical:'center',wrapText:true}};
   }
   
@@ -989,7 +984,7 @@ function applyWeeklySummaryStyle(ws,dataLastRow){
   for(let r=3;r<=dataLastRow;r++){
     for(let c=1;c<=10;c++){
       const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr])ws[addr]={t:'z'};
+      if(!ws[addr])ws[addr]={v:'',t:'s'};
       ws[addr].s={font:{name:'맑은 고딕',sz:10,color:{rgb:'000000'}},
         fill:{fgColor:{rgb:c===10?'BDD7EE':'FFFFFF'}},
         alignment:{horizontal:'center',vertical:'center'}};
@@ -1033,14 +1028,14 @@ function applyDailyOTStyle(ws,dataLastRow){
   // B4:F6 #757171 흰글씨 검정테두리
   for(let r=3;r<=5;r++)for(let c=1;c<=5;c++){
     const addr=XLSX.utils.encode_cell({r,c});
-    if(!ws[addr])ws[addr]={t:'z'};
+    if(!ws[addr])ws[addr]={v:'',t:'s'};
     ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'757171'}},alignment:{horizontal:'center',vertical:'center',wrapText:true},
       border:{top:BK_BORDER,bottom:BK_BORDER,left:BK_BORDER,right:BK_BORDER}};
   }
   // G4:N6 #203764 흰글씨 흰테두리 (H6,K6 배경없음=#FFFFFF)
   for(let r=3;r<=5;r++)for(let c=6;c<=13;c++){
     const addr=XLSX.utils.encode_cell({r,c});
-    if(!ws[addr])ws[addr]={t:'z'};
+    if(!ws[addr])ws[addr]={v:'',t:'s'};
     const isException=(r===5&&(c===7||c===10));
     ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},
       fill:{fgColor:{rgb:isException?'FFFFFF':'203764'}},
@@ -1050,7 +1045,7 @@ function applyDailyOTStyle(ws,dataLastRow){
   // O4:R6 #2F75B5 흰글씨 흰테두리
   for(let r=3;r<=5;r++)for(let c=14;c<=17;c++){
     const addr=XLSX.utils.encode_cell({r,c});
-    if(!ws[addr])ws[addr]={t:'z'};
+    if(!ws[addr])ws[addr]={v:'',t:'s'};
     ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'2F75B5'}},
       alignment:{horizontal:'center',vertical:'center',wrapText:true},
       border:{top:WH_BORDER,bottom:WH_BORDER,left:WH_BORDER,right:WH_BORDER}};
@@ -1061,7 +1056,7 @@ function applyDailyOTStyle(ws,dataLastRow){
   for(let r=6;r<=dataLastRow;r++){
     for(let c=1;c<=17;c++){
       const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr])ws[addr]={t:'z'};
+      if(!ws[addr])ws[addr]={v:'',t:'s'};
       const ef=ws[addr].s?.font||{name:'맑은 고딕',sz:10,color:{rgb:'000000'}};
       if(c===7){
         ws[addr].s={font:ef,fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'center',vertical:'center'}};
@@ -1096,7 +1091,7 @@ function applyDailyAttendanceStyle(ws,dataLastRow){
   // B4:AD5 #203764 흰글씨 Bold 흰테두리
   for(let r=3;r<=4;r++)for(let c=1;c<=29;c++){
     const addr=XLSX.utils.encode_cell({r,c});
-    if(!ws[addr])ws[addr]={t:'z'};
+    if(!ws[addr])ws[addr]={v:'',t:'s'};
     ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'203764'}},
       alignment:{horizontal:'center',vertical:'center',wrapText:true},
       border:{top:WH_BORDER,bottom:WH_BORDER,left:WH_BORDER,right:WH_BORDER}};
@@ -1104,7 +1099,7 @@ function applyDailyAttendanceStyle(ws,dataLastRow){
   // B6:AD6 #D9E1F2 Bold
   for(let c=1;c<=29;c++){
     const addr=XLSX.utils.encode_cell({r:5,c});
-    if(!ws[addr])ws[addr]={t:'z'};
+    if(!ws[addr])ws[addr]={v:'',t:'s'};
     ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'000000'}},fill:{fgColor:{rgb:'D9E1F2'}},
       alignment:{horizontal:'center',vertical:'center'}};
   }
@@ -1112,7 +1107,7 @@ function applyDailyAttendanceStyle(ws,dataLastRow){
   for(let r=6;r<=dataLastRow;r++){
     for(let c=1;c<=29;c++){
       const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr])ws[addr]={t:'z'};
+      if(!ws[addr])ws[addr]={v:'',t:'s'};
       const ef=ws[addr].s?.font||{name:'맑은 고딕',sz:10,color:{rgb:'000000'}};
       ws[addr].s={font:ef,fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'center',vertical:'center'}};
     }
