@@ -900,10 +900,10 @@ function ensureCell(ws,r,c){
   return ws[addr];
 }
 // ═══ xlsx-js-style 서식 시스템 ═══
-const B_THIN={style:'thin',color:{rgb:'000000'}};
-const B_THICK={style:'medium',color:{rgb:'000000'}};
-const B_WHITE={style:'thin',color:{rgb:'FFFFFF'}};
-const B_NONE={};
+const B_THIN={style:'thin',color:{rgb:'FF000000'}};
+const B_THICK={style:'medium',color:{rgb:'FF000000'}};
+const B_WHITE={style:'thin',color:{rgb:'FFFFFFFF'}};
+const B_NONE={style:undefined,color:undefined};
 const FONT_DEFAULT={name:'맑은 고딕',sz:10,color:{rgb:'000000'}};
 const FONT_BOLD={name:'맑은 고딕',sz:10,bold:true,color:{rgb:'000000'}};
 const ALIGN_CENTER={horizontal:'center',vertical:'center',wrapText:true};
@@ -1016,7 +1016,23 @@ function applyWeeklySummaryStyle(ws,dataLastRow){
     }
   }
   
+  // 범위 밖 흰색 먼저
   clearOutside(ws,dataLastRow,10);
+  
+  // ★ 최종: B2:K(dataLastRow) 전체 내부 테두리 + 굵은 바깥 테두리 강제 적용 ★
+  for(let r=1;r<=dataLastRow;r++){
+    for(let c=1;c<=10;c++){
+      const addr=XLSX.utils.encode_cell({r,c});
+      if(!ws[addr])ws[addr]={v:'',t:'s'};
+      if(!ws[addr].s)ws[addr].s={};
+      ws[addr].s.border={
+        top:(r===1)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
+        bottom:(r===dataLastRow)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
+        left:(c===1)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
+        right:(c===10)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}}
+      };
+    }
+  }
 }
 
 // ═══ 연장근무 요일 시트 서식 ═══
@@ -1082,21 +1098,28 @@ function applyDailyOTStyle(ws,dataLastRow){
     }
   }
   
-  // B4:R(dataLastRow) 굵은 바깥쪽 테두리 (데이터 범위 전체)
+  // 범위 밖 흰색 먼저
+  clearOutside(ws,dataLastRow,17);
+  
+  // ★ 최종: B4:R(dataLastRow) 전체 내부 테두리 + 굵은 바깥 테두리 강제 적용 ★
   for(let r=3;r<=dataLastRow;r++){
     for(let c=1;c<=17;c++){
       const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr])continue;
+      if(!ws[addr])ws[addr]={v:'',t:'s'};
       if(!ws[addr].s)ws[addr].s={};
-      if(!ws[addr].s.border)ws[addr].s.border={};
-      if(r===3)ws[addr].s.border.top=B_THICK;
-      if(r===dataLastRow)ws[addr].s.border.bottom=B_THICK;
-      if(c===1)ws[addr].s.border.left=B_THICK;
-      if(c===17)ws[addr].s.border.right=B_THICK;
+      if(c===7){
+        // H열 테두리 없음
+        ws[addr].s.border={top:undefined,bottom:undefined,left:undefined,right:undefined};
+      } else {
+        ws[addr].s.border={
+          top:(r===3)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
+          bottom:(r===dataLastRow)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
+          left:(c===1)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
+          right:(c===17)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}}
+        };
+      }
     }
   }
-  
-  clearOutside(ws,dataLastRow,17);
 }
 
 // ═══ 일일근태 시트 서식 ═══
@@ -1126,24 +1149,36 @@ function applyDailyAttendanceStyle(ws,dataLastRow){
     markStyled(ws,5,c);
   }
   
-  // B7:AD(dataLastRow) 흰배경 + 내부 얇은 테두리
+  // B7:AD(dataLastRow) 데이터행 흰배경
   for(let r=6;r<=dataLastRow;r++){
     for(let c=1;c<=29;c++){
       const addr=XLSX.utils.encode_cell({r,c});
       if(!ws[addr])ws[addr]={v:'',t:'s'};
-      const existFont=ws[addr].s?.font||{...FONT_DEFAULT};
-      ws[addr].s={font:existFont,fill:{fgColor:{rgb:'FFFFFF'}},alignment:ALIGN_CENTER,
-        border:mkBorder(B_THIN,B_THIN,B_THIN,B_THIN)};
-      // 바깥 굵은 테두리
-      if(r===6)ws[addr].s.border.top=B_THICK;
-      if(r===dataLastRow)ws[addr].s.border.bottom=B_THICK;
-      if(c===1)ws[addr].s.border.left=B_THICK;
-      if(c===29)ws[addr].s.border.right=B_THICK;
+      if(!ws[addr].s)ws[addr].s={};
+      if(!ws[addr].s.font)ws[addr].s.font={...FONT_DEFAULT};
+      if(!ws[addr].s.alignment)ws[addr].s.alignment={...ALIGN_CENTER};
+      ws[addr].s.fill={fgColor:{rgb:'FFFFFF'}};
       markStyled(ws,r,c);
     }
   }
   
+  // 범위 밖 흰색 먼저
   clearOutside(ws,dataLastRow,29);
+  
+  // ★ 최종: B4:AD(dataLastRow) 모든 셀에 내부 얇은 테두리 + 바깥 굵은 테두리 강제 ★
+  for(let r=3;r<=dataLastRow;r++){
+    for(let c=1;c<=29;c++){
+      const addr=XLSX.utils.encode_cell({r,c});
+      if(!ws[addr])ws[addr]={v:'',t:'s'};
+      if(!ws[addr].s)ws[addr].s={};
+      ws[addr].s.border={
+        top:(r===3)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
+        bottom:(r===dataLastRow)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
+        left:(c===1)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
+        right:(c===29)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}}
+      };
+    }
+  }
 }
 function setCell(ws,r,c,val,type){
   const addr=XLSX.utils.encode_cell({r:r,c:c});
@@ -1191,6 +1226,14 @@ async function dlDaily(officeFilter){
     const buf=await resp.arrayBuffer();
     const wb=XLSX.read(buf,{type:'array',cellStyles:true,cellNF:true,cellDates:true});
     const ws=wb.Sheets[wb.SheetNames[0]];
+    
+    // 양식 기존 데이터 행 비우기 (R7~R91)
+    for(let r=6;r<=90;r++){
+      for(let c=0;c<=29;c++){
+        const addr=XLSX.utils.encode_cell({r,c});
+        if(ws[addr]){delete ws[addr].v;delete ws[addr].w;delete ws[addr].f;ws[addr].t='s';ws[addr].v='';}
+      }
+    }
     
     setCellStr(ws,2,1,targetDate.getFullYear()+'-'+String(targetDate.getMonth()+1).padStart(2,'0')+'-'+String(targetDate.getDate()).padStart(2,'0'));
     
@@ -1535,33 +1578,38 @@ async function dlWeekly(officeFilter){
         weekDates.forEach((wd,di)=>{
           const col=3+di;
           const wdDate=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate());
-          const rec=getExportRecord(v,wd);
-          const filledRec=(!isOffDay(wd) && !isAway(v.id,wd))
-            ? ({...(rec||{}), dayStatus:(rec?.dayStatus||rec?.todayStatus||'출근'), todayStatus:(rec?.todayStatus||rec?.dayStatus||'출근'), clockIn:(rec?.clockIn||'08:30'), clockOut:(rec?.clockOut||'17:30')})
-            : rec;
-          const info=getWorkInfoForExport(v,wd,filledRec);
-          if(wdDate>todayDate)return;
+          if(wdDate>=todayDate)return; // 오늘 이후 빈칸
 
-          const st=(filledRec?.dayStatus||filledRec?.todayStatus||'');
-          if(st&&weeklyStatusTextSet.has(st)&&!info.hours){
-            setCellStr(weeklyWs,row,col,st);
-            return;
-          }
-          if(isAway(v.id,wd)&&!info.hours){
+          // 부재 체크
+          if(isAway(v.id,wd)){
             const ai=getAway(v.id,wd);
             if(ai?.type)setCellStr(weeklyWs,row,col,ai.type);
             return;
           }
-          const isTodayCol=(dateKey(wd)===dateKey(S.simTime));
-          if(info.hours>0 && !isTodayCol){
-            setCellNum(weeklyWs,row,col,info.hours);
-            weekTotal+=info.hours;
+          // 주말/공휴일 빈칸
+          if(isOffDay(wd))return;
+
+          // 해당 날짜의 투표 데이터 직접 가져오기
+          const dk=dateKey(wd);
+          const rec=getExportRecord(v,wd);
+          const st=rec?.todayStatus||rec?.dayStatus||'';
+          
+          // 해외출장/연차 등 특수 상태
+          if(st&&weeklyStatusTextSet.has(st)){
+            setCellStr(weeklyWs,row,col,st);
             return;
           }
-          if(isOffDay(wd))return;
-          if(filledRec){
-            if(st==='출근'||info.clockIn)setCellStr(weeklyWs,row,col,'O');
-            else setCellStr(weeklyWs,row,col,'');
+
+          // 연장근무 계산: 저장된 overtime 값 또는 출퇴근 시간으로 직접 계산
+          const ci=rec?.clockIn||'08:30';
+          const co=rec?.clockOut||'17:30';
+          const ot=calcOvertime(ci,co);
+          
+          if(ot>0){
+            setCellNum(weeklyWs,row,col,ot);
+            weekTotal+=ot;
+          } else if(st==='출근'||rec?.clockIn){
+            setCellStr(weeklyWs,row,col,'O');
           }
         });
         setCellNum(weeklyWs,row,10,weekTotal);
