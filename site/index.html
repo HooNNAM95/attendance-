@@ -388,8 +388,34 @@ const fmtT=d=>`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).
 const fmtD=d=>`${String(d.getFullYear()).slice(2)}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
 const parseD=s=>{const[y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d);};
 const inRange=(date,from,to)=>{const d=new Date(date.getFullYear(),date.getMonth(),date.getDate()),f=new Date(from.getFullYear(),from.getMonth(),from.getDate()),t=new Date(to.getFullYear(),to.getMonth(),to.getDate());return d>=f&&d<=t;};
-const isAway=(id,date)=>S.awayPeriods.some(a=>a.memberId===id&&inRange(date,parseD(a.from),parseD(a.to)));
-const getAway=(id,date)=>S.awayPeriods.find(a=>a.memberId===id&&inRange(date,parseD(a.from),parseD(a.to)));
+const isAway=(id,date)=>{
+  const member=getMembers().find(m=>m.id===id);
+  const memberName=member?.name||'';
+  return S.awayPeriods.some(a=>{
+    if(!inRange(date,parseD(a.from),parseD(a.to)))return false;
+    // id 매칭 또는 이름 매칭 (이전 버전 호환)
+    if(a.memberId===id)return true;
+    if(memberName&&a.memberName===memberName)return true;
+    // 옛 ID 체계에서 이름으로 찾기
+    const awayMember=getMembers().find(m=>m.id===a.memberId);
+    if(!awayMember){
+      // memberId가 현재 명단에 없으면 이름으로 재매칭 시도
+      const nameMatch=S.awayPeriods.find(p=>p.memberId===a.memberId);
+      return false;
+    }
+    return false;
+  });
+};
+const getAway=(id,date)=>{
+  const member=getMembers().find(m=>m.id===id);
+  const memberName=member?.name||'';
+  return S.awayPeriods.find(a=>{
+    if(!inRange(date,parseD(a.from),parseD(a.to)))return false;
+    if(a.memberId===id)return true;
+    if(memberName&&a.memberName===memberName)return true;
+    return false;
+  });
+};
 const myV=()=>S.votes.find(v=>v.id===S.user?.id);
 const save=()=>{localStorage.setItem('away',JSON.stringify(S.awayPeriods));fbSaveAway(S.awayPeriods);saveDayRecord();};
 function addChat(s,t,type="normal"){S.chatLog.push({sender:s,text:t,time:fmtT(S.simTime),type,id:Date.now()+Math.random()});}
@@ -782,7 +808,7 @@ function submitWeekend(){
   addChat("bot","💼 등록!\n"+lines.join("\n"),"confirm");
   S.modal=null;S.weekendForm={selected:[...dates],entries:JSON.parse(JSON.stringify(entries)),memo:''};render();
 }
-function submitAway(){if(!S.awayForm.from||!S.awayForm.to)return;const a={...S.awayForm,id:Date.now(),registeredBy:S.user.name};S.awayPeriods.push(a);const t=getMembers().find(m=>m.id===a.memberId);addChat("bot","✈️ 부재 등록!\n👤 "+t?.name+" ("+t?.office+")\n📋 "+a.type+"\n📅 "+a.from+" ~ "+a.to+(a.memo?"\n📝 "+a.memo:"")+"\n\n⏸️ 기간 내 알림 자동 면제","system");S.modal=null;save();render();}
+function submitAway(){if(!S.awayForm.from||!S.awayForm.to)return;const t=getMembers().find(m=>m.id===S.awayForm.memberId);const a={...S.awayForm,id:Date.now(),registeredBy:S.user.name,memberName:t?.name||''};S.awayPeriods.push(a);addChat("bot","✈️ 부재 등록!\n👤 "+t?.name+" ("+t?.office+")\n📋 "+a.type+"\n📅 "+a.from+" ~ "+a.to+(a.memo?"\n📝 "+a.memo:"")+"\n\n⏸️ 기간 내 알림 자동 면제","system");S.modal=null;save();render();}
 function deleteAway(id){S.awayPeriods=S.awayPeriods.filter(a=>a.id!==id);save();render();}
 
 function sendReminder(idx){
