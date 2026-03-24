@@ -928,80 +928,71 @@ function setCellStyleByValue(cell,val,type){
 
 // ═══ 연장근무 주 연장근무 현황 시트 서식 ═══
 // ═══ 범위 밖 셀 초기화 ═══
-function clearOutside(ws,maxR,maxC){
-  // 시트의 모든 영역을 확실히 흰색 배경으로 만듦
-  const WHITE_STYLE={font:{name:'맑은 고딕',sz:10,color:{rgb:'000000'}},fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'center',vertical:'center'}};
-  const totalR=Math.max(maxR+10,30);
-  const totalC=Math.max(maxC+5,20);
-  for(let r=0;r<=totalR;r++){
-    for(let c=0;c<=totalC;c++){
+// ═══ 배경 초기화: 스타일만 설정, 빈 셀은 만들지 않음 (경고 방지) ═══
+function fillWhiteBG(ws,maxR,maxC){
+  const W={font:{name:'맑은 고딕',sz:10,color:{rgb:'000000'}},fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'center',vertical:'center'}};
+  for(let r=0;r<=maxR;r++){
+    for(let c=0;c<=maxC;c++){
       const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr]){
-        // 셀이 없으면 새로 만들어서 흰 배경
-        ws[addr]={v:'',t:'s',s:{...WHITE_STYLE}};
-      } else if(!ws[addr]._styled){
-        // 셀이 있지만 스타일 안 된 것 → 흰 배경
-        ws[addr].s={...WHITE_STYLE};
+      if(ws[addr]){
+        // 기존 셀은 스타일만 흰색으로
+        ws[addr].s=W;
+      } else {
+        // 빈 셀은 스타일만 있는 빈 셀 (v 없이)
+        ws[addr]={t:'z',s:{...W}};
       }
     }
   }
-  // _styled 마커 정리
-  for(let r=0;r<=totalR;r++){
-    for(let c=0;c<=totalC;c++){
+}
+function applyBorder(ws,r1,c1,r2,c2){
+  // r1~r2, c1~c2 범위: 내부 얇은 테두리 + 바깥 굵은 테두리
+  const T={style:'thin',color:{rgb:'FF000000'}};
+  const M={style:'medium',color:{rgb:'FF000000'}};
+  for(let r=r1;r<=r2;r++){
+    for(let c=c1;c<=c2;c++){
       const addr=XLSX.utils.encode_cell({r,c});
-      if(ws[addr])delete ws[addr]._styled;
+      if(!ws[addr])ws[addr]={t:'z',s:{}};
+      if(!ws[addr].s)ws[addr].s={};
+      ws[addr].s.border={
+        top:(r===r1)?M:T,
+        bottom:(r===r2)?M:T,
+        left:(c===c1)?M:T,
+        right:(c===c2)?M:T
+      };
     }
   }
-  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:totalR,c:totalC}});
 }
-function markStyled(ws,r,c){const addr=XLSX.utils.encode_cell({r,c});if(ws[addr])ws[addr]._styled=true;else{ws[addr]={v:'',t:'s',_styled:true};}}
 
 // ═══ 연장근무 주 연장근무 현황 시트 서식 ═══
 function applyWeeklySummaryStyle(ws,dataLastRow){
-  // 기존 merges 초기화 (충돌 방지)
-  ws['!merges']=[];
+  // 1단계: A1:AD100 흰배경
+  fillWhiteBG(ws,99,29);
   
-  // B2:K2 합치기 + 색상
+  // 2단계: merges 초기화 후 새로 설정
+  ws['!merges']=[];
   ws['!merges'].push({s:{r:1,c:1},e:{r:1,c:10}});
-  const titleStyle={font:{name:'맑은 고딕',sz:11,bold:true,color:{rgb:'FF3C33'}},fill:{fgColor:{rgb:'FFF2CC'}},alignment:ALIGN_CENTER,border:mkBorder(B_THICK,B_THICK,B_THICK,B_THICK)};
+  
+  // B2:K2 타이틀 (셀합치기됨)
   for(let c=1;c<=10;c++){
     const addr=XLSX.utils.encode_cell({r:1,c});
-    if(!ws[addr])ws[addr]={v:'',t:'s'};
-    ws[addr].s={...titleStyle};markStyled(ws,1,c);
+    if(!ws[addr])ws[addr]={t:'z'};
+    ws[addr].s={font:{name:'맑은 고딕',sz:11,bold:true,color:{rgb:'FF3C33'}},fill:{fgColor:{rgb:'FFF2CC'}},alignment:{horizontal:'center',vertical:'center',wrapText:true}};
   }
   
   // B3:K3 헤더
-  const hdrStyle={font:{...FONT_BOLD},fill:{fgColor:{rgb:'FFFFFF'}},alignment:ALIGN_CENTER,border:mkBorder(B_THIN,B_THIN,B_THIN,B_THIN)};
   for(let c=1;c<=10;c++){
     const addr=XLSX.utils.encode_cell({r:2,c});
-    if(ws[addr])ws[addr].s={...hdrStyle};
-    markStyled(ws,2,c);
+    if(ws[addr])ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'000000'}},fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'center',vertical:'center'}};
   }
   
-  // 데이터 행 (B4~)
+  // K열(합계) #BDD7EE, 나머지 #FFFFFF
   for(let r=3;r<=dataLastRow;r++){
     for(let c=1;c<=10;c++){
       const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr])ws[addr]={v:'',t:'s'};
-      if(c===10){
-        // K열 합계 #BDD7EE
-        ws[addr].s={font:FONT_BOLD,fill:{fgColor:{rgb:'BDD7EE'}},alignment:ALIGN_CENTER,border:mkBorder(B_THIN,B_THIN,B_THIN,B_THIN)};
-      } else {
-        ws[addr].s={font:FONT_DEFAULT,fill:{fgColor:{rgb:'FFFFFF'}},alignment:ALIGN_CENTER,border:mkBorder(B_THIN,B_THIN,B_THIN,B_THIN)};
-      }
-      markStyled(ws,r,c);
-    }
-  }
-  
-  // 굵은 바깥쪽 테두리 B2:K(dataLastRow)
-  for(let r=1;r<=dataLastRow;r++){
-    for(let c=1;c<=10;c++){
-      const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr])continue;
-      if(r===1)ws[addr].s.border.top=B_THICK;
-      if(r===dataLastRow)ws[addr].s.border.bottom=B_THICK;
-      if(c===1)ws[addr].s.border.left=B_THICK;
-      if(c===10)ws[addr].s.border.right=B_THICK;
+      if(!ws[addr])ws[addr]={t:'z'};
+      ws[addr].s={font:{name:'맑은 고딕',sz:10,color:{rgb:'000000'}},
+        fill:{fgColor:{rgb:c===10?'BDD7EE':'FFFFFF'}},
+        alignment:{horizontal:'center',vertical:'center'}};
     }
   }
   
@@ -1016,169 +1007,119 @@ function applyWeeklySummaryStyle(ws,dataLastRow){
     }
   }
   
-  // 범위 밖 흰색 먼저
-  clearOutside(ws,dataLastRow,10);
-  
-  // ★ 최종: B2:K(dataLastRow) 전체 내부 테두리 + 굵은 바깥 테두리 강제 적용 ★
-  for(let r=1;r<=dataLastRow;r++){
-    for(let c=1;c<=10;c++){
-      const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr])ws[addr]={v:'',t:'s'};
-      if(!ws[addr].s)ws[addr].s={};
-      ws[addr].s.border={
-        top:(r===1)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
-        bottom:(r===dataLastRow)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
-        left:(c===1)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
-        right:(c===10)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}}
-      };
-    }
-  }
+  // 3단계: B2:K(dataLastRow) 전체 테두리 + 굵은 바깥
+  applyBorder(ws,1,1,dataLastRow,10);
 }
 
 // ═══ 연장근무 요일 시트 서식 ═══
 function applyDailyOTStyle(ws,dataLastRow){
-  // 기존 merges 유지 (템플릿에서 온 것)
+  // 1단계: A1:AD100 흰배경
+  fillWhiteBG(ws,99,29);
   
+  // 2단계: 특수 셀 서식
   // B2 Bold 11pt
   const a2=XLSX.utils.encode_cell({r:1,c:1});
-  if(ws[a2]){ws[a2].s={font:{name:'맑은 고딕',sz:11,bold:true,color:{rgb:'000000'}},alignment:{horizontal:'left',vertical:'center'}};markStyled(ws,1,1);}
-  
-  // B3 Bold 10pt 빨강, F3 Bold 10pt 빨강
+  if(ws[a2])ws[a2].s={font:{name:'맑은 고딕',sz:11,bold:true,color:{rgb:'000000'}},fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'left',vertical:'center'}};
+  // B3 Bold 10pt 빨강
   const a3=XLSX.utils.encode_cell({r:2,c:1});
-  if(ws[a3]){ws[a3].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FF3C33'}},alignment:{horizontal:'left',vertical:'center'}};markStyled(ws,2,1);}
+  if(ws[a3])ws[a3].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FF3C33'}},fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'left',vertical:'center'}};
+  // F3 Bold 10pt 빨강
   const f3=XLSX.utils.encode_cell({r:2,c:5});
-  if(ws[f3]){ws[f3].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FF3C33'}},alignment:{horizontal:'center',vertical:'center'}};markStyled(ws,2,5);}
+  if(ws[f3])ws[f3].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FF3C33'}},fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'center',vertical:'center'}};
   
-  // B4:F6 = #757171 흰글씨 검정테두리
+  const WH_BORDER={style:'thin',color:{rgb:'FFFFFFFF'}};
+  const BK_BORDER={style:'thin',color:{rgb:'FF000000'}};
+  
+  // B4:F6 #757171 흰글씨 검정테두리
   for(let r=3;r<=5;r++)for(let c=1;c<=5;c++){
     const addr=XLSX.utils.encode_cell({r,c});
-    if(!ws[addr])ws[addr]={v:'',t:'s'};
-    ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'757171'}},alignment:ALIGN_CENTER,border:mkBorder(B_THIN,B_THIN,B_THIN,B_THIN)};
-    markStyled(ws,r,c);
+    if(!ws[addr])ws[addr]={t:'z'};
+    ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'757171'}},alignment:{horizontal:'center',vertical:'center',wrapText:true},
+      border:{top:BK_BORDER,bottom:BK_BORDER,left:BK_BORDER,right:BK_BORDER}};
   }
-  // G4:N6 = #203764 흰글씨 흰테두리 (H6, K6 배경 없음 → 제외)
+  // G4:N6 #203764 흰글씨 흰테두리 (H6,K6 배경없음=#FFFFFF)
   for(let r=3;r<=5;r++)for(let c=6;c<=13;c++){
     const addr=XLSX.utils.encode_cell({r,c});
-    if(!ws[addr])ws[addr]={v:'',t:'s'};
-    // H6(r=5,c=7)과 K6(r=5,c=10)은 배경 없음
-    if(r===5&&(c===7||c===10)){
-      ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'FFFFFF'}},alignment:ALIGN_CENTER,border:mkBorder(B_WHITE,B_WHITE,B_WHITE,B_WHITE)};
-    } else {
-      ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'203764'}},alignment:ALIGN_CENTER,border:mkBorder(B_WHITE,B_WHITE,B_WHITE,B_WHITE)};
-    }
-    markStyled(ws,r,c);
+    if(!ws[addr])ws[addr]={t:'z'};
+    const isException=(r===5&&(c===7||c===10));
+    ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},
+      fill:{fgColor:{rgb:isException?'FFFFFF':'203764'}},
+      alignment:{horizontal:'center',vertical:'center',wrapText:true},
+      border:{top:WH_BORDER,bottom:WH_BORDER,left:WH_BORDER,right:WH_BORDER}};
   }
-  // O4:R6 = #2F75B5 흰글씨 흰테두리
+  // O4:R6 #2F75B5 흰글씨 흰테두리
   for(let r=3;r<=5;r++)for(let c=14;c<=17;c++){
     const addr=XLSX.utils.encode_cell({r,c});
-    if(!ws[addr])ws[addr]={v:'',t:'s'};
-    ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'2F75B5'}},alignment:ALIGN_CENTER,border:mkBorder(B_WHITE,B_WHITE,B_WHITE,B_WHITE)};
-    markStyled(ws,r,c);
+    if(!ws[addr])ws[addr]={t:'z'};
+    ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'2F75B5'}},
+      alignment:{horizontal:'center',vertical:'center',wrapText:true},
+      border:{top:WH_BORDER,bottom:WH_BORDER,left:WH_BORDER,right:WH_BORDER}};
   }
   
-  // 데이터행 서식 (모든 셀 확실히 흰배경 + 해당 서식)
-  const grayColSet=new Set([6,8,9,11,14]); // G,I,J,L,O
+  // 데이터행: G,I,J,L,O = #F2F2F2 좌우테두리, H = 흰배경 테두리없음
+  const graySet=new Set([6,8,9,11,14]);
   for(let r=6;r<=dataLastRow;r++){
     for(let c=1;c<=17;c++){
       const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr])ws[addr]={v:'',t:'s'};
-      const existFont=ws[addr].s?.font||{...FONT_DEFAULT};
-      const existAlign=ws[addr].s?.alignment||{...ALIGN_CENTER};
+      if(!ws[addr])ws[addr]={t:'z'};
+      const ef=ws[addr].s?.font||{name:'맑은 고딕',sz:10,color:{rgb:'000000'}};
       if(c===7){
-        // H열 흰배경 테두리 없음
-        ws[addr].s={font:existFont,fill:{fgColor:{rgb:'FFFFFF'}},alignment:existAlign};
-      } else if(grayColSet.has(c)){
-        // 회색배경 좌우테두리만
-        ws[addr].s={font:existFont,fill:{fgColor:{rgb:'F2F2F2'}},alignment:existAlign,border:mkBorder(B_NONE,B_NONE,B_THIN,B_THIN)};
+        ws[addr].s={font:ef,fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'center',vertical:'center'}};
+      } else if(graySet.has(c)){
+        ws[addr].s={font:ef,fill:{fgColor:{rgb:'F2F2F2'}},alignment:{horizontal:'center',vertical:'center'},
+          border:{left:BK_BORDER,right:BK_BORDER}};
       } else {
-        // 흰배경 좌우테두리
-        ws[addr].s={font:existFont,fill:{fgColor:{rgb:'FFFFFF'}},alignment:existAlign,border:mkBorder(B_NONE,B_NONE,B_THIN,B_THIN)};
-      }
-      markStyled(ws,r,c);
-    }
-  }
-  
-  // 범위 밖 흰색 먼저
-  clearOutside(ws,dataLastRow,17);
-  
-  // ★ 최종: B4:R(dataLastRow) 전체 내부 테두리 + 굵은 바깥 테두리 강제 적용 ★
-  for(let r=3;r<=dataLastRow;r++){
-    for(let c=1;c<=17;c++){
-      const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr])ws[addr]={v:'',t:'s'};
-      if(!ws[addr].s)ws[addr].s={};
-      if(c===7){
-        // H열 테두리 없음
-        ws[addr].s.border={top:undefined,bottom:undefined,left:undefined,right:undefined};
-      } else {
-        ws[addr].s.border={
-          top:(r===3)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
-          bottom:(r===dataLastRow)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
-          left:(c===1)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
-          right:(c===17)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}}
-        };
+        ws[addr].s={font:ef,fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'center',vertical:'center'}};
       }
     }
   }
+  
+  // 3단계: B4:R(dataLastRow) 전체 테두리 + 굵은 바깥
+  applyBorder(ws,3,1,dataLastRow,17);
 }
 
 // ═══ 일일근태 시트 서식 ═══
 function applyDailyAttendanceStyle(ws,dataLastRow){
+  // 1단계: A1:AG100 흰배경
+  fillWhiteBG(ws,99,32);
+  
+  // 2단계: 특수 셀 서식
   // B2 Bold 11pt
   const a2=XLSX.utils.encode_cell({r:1,c:1});
-  if(ws[a2]){ws[a2].s={font:{name:'맑은 고딕',sz:11,bold:true,color:{rgb:'000000'}},alignment:{horizontal:'left',vertical:'center'}};markStyled(ws,1,1);}
-  
+  if(ws[a2])ws[a2].s={font:{name:'맑은 고딕',sz:11,bold:true,color:{rgb:'000000'}},fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'left',vertical:'center'}};
   // B3 Bold 10pt 빨강
   const a3=XLSX.utils.encode_cell({r:2,c:1});
-  if(ws[a3]){ws[a3].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FF3C33'}},alignment:{horizontal:'left',vertical:'center'}};markStyled(ws,2,1);}
+  if(ws[a3])ws[a3].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FF3C33'}},fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'left',vertical:'center'}};
   
-  // B4:AD5 = #203764 흰글씨 Bold 흰테두리
+  const WH_BORDER={style:'thin',color:{rgb:'FFFFFFFF'}};
+  
+  // B4:AD5 #203764 흰글씨 Bold 흰테두리
   for(let r=3;r<=4;r++)for(let c=1;c<=29;c++){
     const addr=XLSX.utils.encode_cell({r,c});
-    if(!ws[addr])ws[addr]={v:'',t:'s'};
-    ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'203764'}},alignment:ALIGN_CENTER,border:mkBorder(B_WHITE,B_WHITE,B_WHITE,B_WHITE)};
-    markStyled(ws,r,c);
+    if(!ws[addr])ws[addr]={t:'z'};
+    ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'203764'}},
+      alignment:{horizontal:'center',vertical:'center',wrapText:true},
+      border:{top:WH_BORDER,bottom:WH_BORDER,left:WH_BORDER,right:WH_BORDER}};
   }
-  
-  // B6:AD6 = #D9E1F2 Bold 굵은바깥테두리
+  // B6:AD6 #D9E1F2 Bold
   for(let c=1;c<=29;c++){
     const addr=XLSX.utils.encode_cell({r:5,c});
-    if(!ws[addr])ws[addr]={v:'',t:'s'};
-    ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'000000'}},fill:{fgColor:{rgb:'D9E1F2'}},alignment:ALIGN_CENTER,
-      border:{top:B_THICK,bottom:B_THICK,left:c===1?B_THICK:B_THIN,right:c===29?B_THICK:B_THIN}};
-    markStyled(ws,5,c);
+    if(!ws[addr])ws[addr]={t:'z'};
+    ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'000000'}},fill:{fgColor:{rgb:'D9E1F2'}},
+      alignment:{horizontal:'center',vertical:'center'}};
   }
-  
   // B7:AD(dataLastRow) 데이터행 흰배경
   for(let r=6;r<=dataLastRow;r++){
     for(let c=1;c<=29;c++){
       const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr])ws[addr]={v:'',t:'s'};
-      if(!ws[addr].s)ws[addr].s={};
-      if(!ws[addr].s.font)ws[addr].s.font={...FONT_DEFAULT};
-      if(!ws[addr].s.alignment)ws[addr].s.alignment={...ALIGN_CENTER};
-      ws[addr].s.fill={fgColor:{rgb:'FFFFFF'}};
-      markStyled(ws,r,c);
+      if(!ws[addr])ws[addr]={t:'z'};
+      const ef=ws[addr].s?.font||{name:'맑은 고딕',sz:10,color:{rgb:'000000'}};
+      ws[addr].s={font:ef,fill:{fgColor:{rgb:'FFFFFF'}},alignment:{horizontal:'center',vertical:'center'}};
     }
   }
   
-  // 범위 밖 흰색 먼저
-  clearOutside(ws,dataLastRow,29);
-  
-  // ★ 최종: B4:AD(dataLastRow) 모든 셀에 내부 얇은 테두리 + 바깥 굵은 테두리 강제 ★
-  for(let r=3;r<=dataLastRow;r++){
-    for(let c=1;c<=29;c++){
-      const addr=XLSX.utils.encode_cell({r,c});
-      if(!ws[addr])ws[addr]={v:'',t:'s'};
-      if(!ws[addr].s)ws[addr].s={};
-      ws[addr].s.border={
-        top:(r===3)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
-        bottom:(r===dataLastRow)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
-        left:(c===1)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}},
-        right:(c===29)?{style:'medium',color:{rgb:'FF000000'}}:{style:'thin',color:{rgb:'FF000000'}}
-      };
-    }
-  }
+  // 3단계: B4:AD(dataLastRow) 전체 테두리 + 굵은 바깥
+  applyBorder(ws,3,1,dataLastRow,29);
 }
 function setCell(ws,r,c,val,type){
   const addr=XLSX.utils.encode_cell({r:r,c:c});
@@ -1609,7 +1550,7 @@ async function dlWeekly(officeFilter){
             setCellNum(weeklyWs,row,col,ot);
             weekTotal+=ot;
           } else if(st==='출근'||rec?.clockIn){
-            setCellStr(weeklyWs,row,col,'O');
+            setCellStr(weeklyWs,row,col,'-');
           }
         });
         setCellNum(weeklyWs,row,10,weekTotal);
@@ -2640,7 +2581,13 @@ function rStatus(root){
     
     const grid6='1fr 42px 42px 50px 42px';
     const table=h('div',{style:{background:'white',borderRadius:'14px',boxShadow:'0 1px 3px rgba(0,0,0,0.05)',overflow:'hidden',marginBottom:'10px'}});
-    table.append(h('div',{style:{display:'grid',gridTemplateColumns:grid6,gap:'1px',padding:'9px 13px',alignItems:'center',textAlign:'center',fontSize:'10px',background:'#fafafa',borderBottom:'1px solid #eee',fontWeight:800,color:'#888'}},
+    // 날짜 구분 행
+    const prevDay=getPrevWorkday(S.simTime);
+    const prevLabel=(prevDay.getMonth()+1)+'/'+prevDay.getDate();
+    const todayLabel=(S.simTime.getMonth()+1)+'/'+S.simTime.getDate();
+    table.append(h('div',{style:{display:'grid',gridTemplateColumns:grid6,gap:'1px',padding:'4px 13px 0',alignItems:'center',textAlign:'center',fontSize:'9px',color:'#aaa'}},
+      h('span',null,''),h('span',null,prevLabel),h('span',null,prevLabel),h('span',null,todayLabel),h('span',null,prevLabel)));
+    table.append(h('div',{style:{display:'grid',gridTemplateColumns:grid6,gap:'1px',padding:'2px 13px 6px',alignItems:'center',textAlign:'center',fontSize:'10px',background:'#fafafa',borderBottom:'1px solid #eee',fontWeight:800,color:'#888'}},
       h('span',{style:{textAlign:'left'}},'이름'),h('span',null,'출근'),h('span',null,'퇴근'),h('span',null,'상태'),h('span',{style:{color:'#E65100'}},'연장')));
     
     typeVotes.forEach(v=>{
@@ -2740,12 +2687,12 @@ function rStatus(root){
           const ot=calcOvertime(v.clockIn,v.clockOut);
           if(ds&&ds!=='출근'){val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';}
           else if(ot>0){val=String(ot);weekTotal+=ot;valColor='#E65100';}
-          else{val='O';valColor='#2e7d32';}
+          else{val='-';valColor='#ccc';}
         }
         else{const dayRec=localStorage.getItem('day_'+dk);if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(rr=>rr.id===v.id);if(rec){
           const ds=rec.dayStatus;
           if(ds&&ds!=='출근'){val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';}
-          else{const rot=rec.overtime||0;if(rot>0){val=String(rot);weekTotal+=rot;valColor='#E65100';}else if(ds==='출근'||rec.clockIn){val='O';valColor='#2e7d32';}else val='';}
+          else{const rot=rec.overtime||0;if(rot>0){val=String(rot);weekTotal+=rot;valColor='#E65100';}else if(ds==='출근'||rec.clockIn){val='-';valColor='#ccc';}else val='';}
         }}else val='';}
         r.append(h('div',{style:{flex:1,textAlign:'center',fontSize:val.length>2?'8px':'10px',fontWeight:val&&val!=='O'?700:400,
           color:valColor,
@@ -3074,10 +3021,11 @@ async function dlHistoryWeekly(weekKey){
       });
       nextSheets['주 연장근무 현황']=weeklyWs;
       nextNames.push('주 연장근무 현황');
+      // 주간현황 서식 적용 (row는 이 블록 안에서만 유효)
+      applyWeeklySummaryStyle(weeklyWs,row-1);
     }
     
-    // 서식 적용
-    if(nextSheets['주 연장근무 현황'])applyWeeklySummaryStyle(nextSheets['주 연장근무 현황'],row-1);
+    // 날짜별 시트 서식 적용
     nextNames.forEach(name=>{
       if(name==='기준'||name==='주 연장근무 현황')return;
       const s=nextSheets[name];if(!s)return;
@@ -3130,7 +3078,7 @@ function rModal(root){
     box.append(sel2);
     box.append(h('label',null,'시작일'));box.append(h('input',{type:'date',value:S.awayForm.from,onChange:e=>{S.awayForm.from=e.target.value;}}));
     box.append(h('label',null,'종료일'));box.append(h('input',{type:'date',value:S.awayForm.to,onChange:e=>{S.awayForm.to=e.target.value;}}));
-    box.append(h('label',null,'메모'));box.append(h('input',{placeholder:'예) VINA 출장',value:S.awayForm.memo,onInput:e=>{S.awayForm.memo=e.target.value;}}));
+    box.append(h('label',null,'메모'));box.append(h('input',{placeholder:'예) 미국 본사 출장',value:S.awayForm.memo,onInput:e=>{S.awayForm.memo=e.target.value;}}));
     box.append(h('div',{className:'info-box',style:{background:'#e3f2fd',color:'#1565c0'}},'⏸️ 기간 내: 알림 안감 · 미투표 제외 · 현황에 부재 사유 자동 표시'));
     const btns=h('div',{style:{display:'flex',gap:'7px',marginTop:'4px'}});
     btns.append(h('button',{className:'btn',style:{flex:1,padding:'13px',background:'#f5f5f5',color:'#666',borderRadius:'11px'},onClick:()=>{S.modal=null;render();}},'취소'));
