@@ -1120,6 +1120,7 @@ function fillDailyOvertimeSheet(ws,targetDate,members){
   setCellStr(ws,2,5,isOff?'휴무일':'평일');
 
   // 시간 기본값/서식을 살리기 위해 템플릿 값을 최대한 유지하고 필요한 값만 덮어씀
+  // K열(col10), L열(col11), M열(col12)은 수식이므로 건드리지 않음!
   for(let row=6; row<=23; row++){
     setCellStr(ws,row,1,'');
     setCellStr(ws,row,2,'');
@@ -1130,9 +1131,7 @@ function fillDailyOvertimeSheet(ws,targetDate,members){
     setCellStr(ws,row,17,'');
     setCellStr(ws,row,18,'');
     setCellStr(ws,row,20,'');
-    // K/M/P/Q 승인값 계열은 기본 비움
-    setCellStr(ws,row,10,'');
-    setCellStr(ws,row,12,'');
+    // P/Q 승인값만 비움 (K/L/M은 수식 보존)
     setCellStr(ws,row,15,'');
     setCellStr(ws,row,16,'');
   }
@@ -1158,12 +1157,8 @@ function fillDailyOvertimeSheet(ws,targetDate,members){
       setCellTime(ws,row,6,info.clockOut||'17:30'); // G 확정 퇴근
       setCellTime(ws,row,8,info.clockIn||'08:30');  // I 실제 출근
       setCellTime(ws,row,9,info.clockOut||'17:30'); // J 실제 퇴근
-
-      if(Number(info.hours||0)>0) setCellNum(ws,row,10,info.hours); // K 연장시간
-      if(Number(info.hours||0)>0) setCellNum(ws,row,12,info.hours); // M 승인
+      // K열(연장시간), L열(정상퇴근기준), M열(승인)은 수식이 자동 계산
       setCellTime(ws,row,14,info.clockOut||'17:30'); // O 담당자 신청 퇴근
-      if(Number(info.hours||0)>0) setCellNum(ws,row,15,info.hours); // P 신청
-      if(Number(info.hours||0)>0) setCellNum(ws,row,16,info.hours); // Q 승인
     }
     
     // N열: 전일(어제) 업무내용
