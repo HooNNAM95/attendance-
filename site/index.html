@@ -2591,58 +2591,151 @@ async function dlHistoryDaily(dayKey,record){
 
 // 과거 기록 — 주간 연장근무 엑셀 다운로드 (양식 기반)
 async function dlHistoryWeekly(weekKey){
-  const days=getWeekDays(weekKey);
   const weekDates=[];
   const d0=new Date(weekKey);
   for(let i=0;i<7;i++){const dd=new Date(d0);dd.setDate(d0.getDate()+i);weekDates.push(dd);}
   const dayLabels=['월','화','수','목','금','토','일'];
-  const members=getMembers().filter(m=>m.type==='정규');
+  const members=getMembers().filter(m=>m.type!=='작업자');
   
   try{
     const resp=await fetch('./연장근무.xlsx');
     if(!resp.ok)throw new Error('no file');
     const buf=await resp.arrayBuffer();
     const wb=XLSX.read(buf,{type:'array',cellStyles:true,cellNF:true,cellDates:true});
-    const wsName=wb.SheetNames.find(n=>n.includes('주 연장근무'))||wb.SheetNames[wb.SheetNames.length-1];
-    const ws=wb.Sheets[wsName];
-    ws['B2']={t:'s',v:'연장근무 합계 12시간 이내로 ('+getWeekLabel(d0)+')'};
-    weekDates.forEach((wd,i)=>{
-      let label=dayLabels[i];
-      if(isHoliday(wd))label+=' ['+getHolidayName(wd)+']';
-      else if(isWeekend(wd))label+=' [휴무]';
-      setCellStr(ws,2,3+i,label);
+    
+    function getTemplateName(dt){
+      if(isHoliday(dt))return '공휴일';
+      if(dt.getDay()===6)return '토요일';
+      if(dt.getDay()===0)return '일요일';
+      return '평일';
+    }
+    
+    const nextSheets={};
+    const nextNames=[];
+    
+    // 기준 시트 유지
+    if(wb.Sheets['기준']){
+      nextSheets['기준']=wb.Sheets['기준'];
+      nextNames.push('기준');
+    }
+    
+    // 날짜별 시트 생성 (월~일 7일)
+    weekDates.forEach(dt=>{
+      const tplName=getTemplateName(dt);
+      const tplWs=wb.Sheets[tplName];
+      if(!tplWs)return;
+      
+      const ws=JSON.parse(JSON.stringify(tplWs));
+      
+      // B3 = 날짜
+      setCellStr(ws,2,1,dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'));
+      
+      // 각 직원 데이터
+      members.forEach((m,i)=>{
+        const row=6+i;
+        setCellStr(ws,row,2,m.part||m.dept||'');
+        setCellStr(ws,row,3,m.name||'');
+        setCellStr(ws,row,4,m.rank||'');
+        setCellStr(ws,row,5,m.type||'정규');
+        
+        // 부재 체크
+        if(isAway(m.id,dt)){
+          const ai=getAway(m.id,dt);
+          setCellStr(ws,row,13,ai?.type||'부재');
+          setCellStr(ws,row,17,ai?.type||'부재');
+          return;
+        }
+        
+        // 해당 날짜 투표 데이터
+        let clockIn='08:30',clockOut='17:30',dayStatus='출근';
+        const dk=dateKey(dt);
+        const dayRec=localStorage.getItem('day_'+dk);
+        if(dayRec){
+          const recs=JSON.parse(dayRec);
+          const rec=recs.find(r=>r.id===m.id);
+          if(rec){
+            if(rec.clockIn)clockIn=rec.clockIn;
+            if(rec.clockOut)clockOut=rec.clockOut;
+            if(rec.todayStatus)dayStatus=rec.todayStatus;
+            else if(rec.dayStatus)dayStatus=rec.dayStatus;
+          }
+        }
+        
+        setCellStr(ws,row,6,clockOut);
+        setCellStr(ws,row,8,clockIn);
+        setCellStr(ws,row,9,clockOut);
+        
+        // N열: 전일 업무내용
+        const prev=new Date(dt.getFullYear(),dt.getMonth(),dt.getDate()-1);
+        if(isAway(m.id,prev)){const ai=getAway(m.id,prev);setCellStr(ws,row,13,ai?.type||'부재');}
+        else if(isWeekend(prev)||isHoliday(prev)){setCellStr(ws,row,13,'휴무');}
+        else{setCellStr(ws,row,13,dayStatus==='출근'?'신규 모델 관련 업무 진행':dayStatus);}
+        
+        // R열: 오늘 업무내용
+        if(isAway(m.id,dt)){const ai=getAway(m.id,dt);setCellStr(ws,row,17,ai?.type||'부재');}
+        else if(isWeekend(dt)||isHoliday(dt)){setCellStr(ws,row,17,'휴무');}
+        else{setCellStr(ws,row,17,dayStatus==='출근'?'신규 모델 관련 업무 진행':dayStatus);}
+      });
+      
+      const sheetName=(dt.getMonth()+1)+'-'+dt.getDate();
+      nextSheets[sheetName]=ws;
+      nextNames.push(sheetName);
     });
-    const teamGroups={};members.forEach(v=>{const t=v.part||v.dept;if(!teamGroups[t])teamGroups[t]=[];teamGroups[t].push(v);});
-    let row=3;
-    Object.entries(teamGroups).forEach(([team,mems])=>{
-      mems.forEach((v,mi)=>{
-        if(mi===0)setCellStr(ws,row,1,team);
-        setCellStr(ws,row,2,v.name);
-        let weekTotal=0;
-        weekDates.forEach((wd,di)=>{
-          const dk=dateKey(wd);
-          if(isAway(v.id,wd)){const ai=getAway(v.id,wd);setCellStr(ws,row,3+di,ai?.type||'부재');}
-          else if(isOffDay(wd)){}
-          else{
-            const dayRec=localStorage.getItem('day_'+dk);
-            if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(r=>r.id===v.id);
-              if(rec){
-                const ds=rec.todayStatus||rec.dayStatus;
-                if(ds&&ds!=='출근'){setCellStr(ws,row,3+di,ds);}
-                else{const ot=rec.overtime||0;setCellNum(ws,row,3+di,ot);weekTotal+=ot;}
+    
+    // 주 연장근무 현황 시트
+    const weeklyWs=wb.Sheets['주 연장근무 현황'];
+    if(weeklyWs){
+      setCellStr(weeklyWs,1,1,'연장근무 합계 12시간 이내로 ('+getWeekLabel(d0)+')');
+      weekDates.forEach((wd,i)=>{
+        let label=dayLabels[i];
+        if(isHoliday(wd))label+=' ['+getHolidayName(wd)+']';
+        else if(isWeekend(wd))label+=' [휴무]';
+        setCellStr(weeklyWs,2,3+i,label);
+      });
+      const teamGroups={};
+      members.forEach(v=>{const t=v.part||v.dept;if(!teamGroups[t])teamGroups[t]=[];teamGroups[t].push(v);});
+      let row=3;
+      Object.entries(teamGroups).forEach(([team,mems])=>{
+        mems.forEach((v,mi)=>{
+          if(mi===0)setCellStr(weeklyWs,row,1,team);
+          setCellStr(weeklyWs,row,2,v.name);
+          let weekTotal=0;
+          weekDates.forEach((wd,di)=>{
+            const dk=dateKey(wd);
+            if(isAway(v.id,wd)){const ai=getAway(v.id,wd);setCellStr(weeklyWs,row,3+di,ai?.type||'부재');}
+            else if(isOffDay(wd)){}
+            else{
+              const dayRec=localStorage.getItem('day_'+dk);
+              if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(r=>r.id===v.id);
+                if(rec){
+                  const ds=rec.todayStatus||rec.dayStatus;
+                  if(ds&&ds!=='출근'){setCellStr(weeklyWs,row,3+di,ds);}
+                  else{const ot=rec.overtime||0;setCellNum(weeklyWs,row,3+di,ot);weekTotal+=ot;}
+                }
               }
             }
-          }
+          });
+          setCellNum(weeklyWs,row,10,weekTotal);
+          if(weekTotal>12)setCellStr(weeklyWs,row,11,'※초과');
+          row++;
         });
-        setCellNum(ws,row,10,weekTotal);
-        if(weekTotal>12)setCellStr(ws,row,11,'※초과');
-        row++;
       });
-    });
-    ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:row+2,c:12}});
-    XLSX.writeFile(wb,'주연장근무_'+getWeekLabel(d0).replace(/\//g,'').replace('~','-')+'.xlsx',{bookSST:true,bookType:'xlsx',cellStyles:true});
+      nextSheets['주 연장근무 현황']=weeklyWs;
+      nextNames.push('주 연장근무 현황');
+    }
+    
+    // 워크북 재구성
+    wb.Sheets=nextSheets;
+    wb.SheetNames=nextNames;
+    if(wb.Workbook&&Array.isArray(wb.Workbook.Sheets)){
+      wb.Workbook.Sheets=nextNames.map(n=>({name:n,Hidden:(n==='기준'?1:0)}));
+    }
+    
+    const dateRange=weekDates[0].getMonth()+1+'.'+weekDates[0].getDate()+'~'+weekDates[6].getMonth()+1+'.'+weekDates[6].getDate();
+    XLSX.writeFile(wb,'연장근무_'+dateRange+'.xlsx',{bookSST:true,bookType:'xlsx',cellStyles:true});
   }catch(e){
-    alert('양식 파일을 불러올 수 없습니다.');
+    console.error(e);
+    alert('양식 파일을 불러올 수 없습니다.\n에러: '+e.message);
   }
 }
 
