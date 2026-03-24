@@ -1002,12 +1002,14 @@ function getOvertimeExportDates(baseDate){
   const dates=[today];
   let prev=new Date(today); prev.setDate(prev.getDate()-1);
 
+  // 직전 날짜가 쉬는날이면, 마지막 근무일을 만날 때까지 쉬는날 시트를 전부 포함
   if(isOffDay(prev)){
     while(isOffDay(prev)){
       dates.unshift(new Date(prev));
       prev.setDate(prev.getDate()-1);
     }
   }else{
+    // 쉬는날 체인이 없으면 전날 1장만 포함
     dates.unshift(new Date(prev));
   }
   return dates;
