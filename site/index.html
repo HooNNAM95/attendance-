@@ -218,14 +218,26 @@ function shouldAlert(){return isWorkday(S.simTime);}
 //   21:30 이상 퇴근 → 퇴근 - 20:00 (저녁 1시간 차감)
 function parseTimeToMin(t){
   if(!t)return null;
-  let[h,m]=t.split(':').map(Number);
-  if(h>=1&&h<=8) h+=24; // 01:00~08:00은 다음날 (25시~32시)
-  if(t==='24:00') return 24*60;
-  return h*60+m;
+  let s=String(t);
+  if(s==='24:00')return 24*60;
+  let[h,m]=s.split(':').map(Number);
+  if(isNaN(h)||isNaN(m))return null;
+  return h*60+(m||0);
+}
+function parseClockOutMin(t){
+  // 퇴근 전용: 새벽 1~8시는 다음날로 간주 (야근)
+  if(!t)return null;
+  let s=String(t);
+  if(s==='24:00')return 24*60;
+  let[h,m]=s.split(':').map(Number);
+  if(isNaN(h)||isNaN(m))return null;
+  if(h>=1&&h<=8)h+=24;
+  return h*60+(m||0);
 }
 function calcOvertime(clockIn,clockOut){
   if(!clockIn||!clockOut)return 0;
-  const inMin=parseTimeToMin(clockIn),outMin=parseTimeToMin(clockOut);
+  const inMin=parseTimeToMin(clockIn);   // 출근: 그대로 (8:30=510)
+  const outMin=parseClockOutMin(clockOut); // 퇴근: 새벽이면 +24h
   if(inMin===null||outMin===null)return 0;
   
   // 정상퇴근 = 출근 + 9시간 (8시간 근무 + 1시간 점심)
@@ -235,17 +247,14 @@ function calcOvertime(clockIn,clockOut){
   
   let otMin=0;
   if(outMin>=dinnerThreshold){
-    // 저녁 1시간 차감: 퇴근 - (정상퇴근+1시간)
     otMin=outMin-(normalOut+60);
   } else if(outMin>normalOut){
-    // 정상퇴근 이후 ~ 저녁차감 전: 퇴근 - 정상퇴근
     otMin=outMin-normalOut;
   } else {
     otMin=0;
   }
   
   if(otMin<=0)return 0;
-  // 30분 단위 (0.5시간)
   return Math.floor(otMin/30)*0.5;
 }
 const MAIN_STATUS_KEYS=["출근","연차","오전반차","오후반차","해외출장"];
@@ -450,7 +459,7 @@ function deleteDogeupName(name){
   const list=loadDogeupNames().filter(n=>n!==name);
   saveDogeupNames(list);render();
 }
-const DATA_VERSION='v8_fix_review';
+const DATA_VERSION='v9_ot_fix';
 function loadMembers(){
   const ver=localStorage.getItem('members_ver');
   if(ver!==DATA_VERSION){localStorage.removeItem('members');localStorage.removeItem('away');localStorage.setItem('members_ver',DATA_VERSION);}
