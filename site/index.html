@@ -1226,7 +1226,15 @@ function setCellTime(ws,r,c,t){
 }
 function cloneSheetObj(ws){
   const cloned=JSON.parse(JSON.stringify(ws||{}));
-  if(ws&&ws['!merges'])cloned['!merges']=JSON.parse(JSON.stringify(ws['!merges']));
+  // 수식의 _x000d_ (캐리지 리턴) 제거 — 엑셀 경고 방지
+  Object.keys(cloned).forEach(k=>{
+    if(k.startsWith('!'))return;
+    if(cloned[k]&&cloned[k].f){
+      cloned[k].f=cloned[k].f.replace(/_x000d_/g,'').replace(/\r/g,'');
+    }
+  });
+  // merges 초기화 (원본 merges가 딥카피 후 충돌할 수 있으므로)
+  delete cloned['!merges'];
   if(ws&&ws['!cols'])cloned['!cols']=JSON.parse(JSON.stringify(ws['!cols']));
   if(ws&&ws['!rows'])cloned['!rows']=JSON.parse(JSON.stringify(ws['!rows']));
   if(ws&&ws['!ref'])cloned['!ref']=ws['!ref'];
@@ -1419,7 +1427,8 @@ function fillDailyOvertimeSheet(ws,targetDate,members){
     setCellStr(ws,row,17,getTodayStatusTextForExport(m,targetDate,todayRec));
   });
 
-  ws['!ref']='A1:V24';
+  const lastRow=6+members.length;
+  ws['!ref']='A1:V'+lastRow;
 }
 async function dlWeekly(officeFilter){
   const office=officeFilter||S.officeFilter||'전체';
@@ -1474,7 +1483,7 @@ async function dlWeekly(officeFilter){
       const tplWs=wb.Sheets[tplName];
       if(!tplWs)return;
       // 딥카피로 각 날짜별 독립 시트 생성
-      const ws=JSON.parse(JSON.stringify(tplWs));
+      const ws=cloneSheetObj(tplWs);
       fillDailyOvertimeSheet(ws,dt,offVotes);
       const newName=(dt.getMonth()+1)+'-'+dt.getDate();
       nextSheets[newName]=ws;
@@ -1555,7 +1564,7 @@ async function dlWeekly(officeFilter){
       });
     });
 
-    weeklyWs['!ref']='A1:U23';
+    weeklyWs['!ref']='A1:U'+(row+2);
     // 주간현황 서식 적용
     applyWeeklySummaryStyle(weeklyWs,row-1);
     nextSheets['주 연장근무 현황']=weeklyWs;
@@ -2933,7 +2942,7 @@ async function dlHistoryWeekly(weekKey){
       const tplWs=wb.Sheets[tplName];
       if(!tplWs)return;
       
-      const ws=JSON.parse(JSON.stringify(tplWs));
+      const ws=cloneSheetObj(tplWs);
       
       // B3 = 날짜
       setCellStr(ws,2,1,dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'));
