@@ -756,7 +756,14 @@ function submitWeekend(){
     const item=entries[d]||{};
     return !!(item.clockIn&&item.clockOut);
   }).sort();
-  if(!dates.length){alert('주말 날짜별 출근/퇴근 시간을 입력해주세요.');return;}
+  if(!dates.length){
+    // 날짜 없이 등록 → 기존 주말출근 데이터 초기화
+    S.pending.weekendDates=[];
+    S.pending.weekendHours='';
+    S.pending.weekendTimeMap={};
+    addChat("bot","🗑️ 주말출근 데이터가 초기화되었습니다.","system");
+    S.modal=null;render();return;
+  }
   const weekendTimeMap={};
   for(const d of dates){
     const item=entries[d]||{};
@@ -1574,13 +1581,12 @@ function rMain(root){
       h('button',{style:{background:'rgba(0,0,0,0.08)',border:'none',borderRadius:'5px',padding:'4px 9px',fontSize:'11px',fontWeight:700,color:'#666',cursor:'pointer',fontFamily:'inherit'},onClick:()=>{S.screen="auth";S.user=null;render();}},'나가기'))
   ));
   const tabs=h('div',{className:'tabs'});
-  [{k:'vote',l:'📋 투표'},{k:'today',l:'🏢 오늘'},{k:'away',l:'✈️ 부재'},{k:'dogeup',l:'👷 작업자'},{k:'status',l:'📊 현황'},{k:'history',l:'📁 기록'}].forEach(t=>tabs.append(h('button',{className:'tab'+(S.tab===t.k?' on':''),onClick:()=>{S.tab=t.k;render();}},t.l)));
+  [{k:'vote',l:'📋 투표'},{k:'today',l:'🏢 오늘'},{k:'away',l:'✈️ 부재'},{k:'status',l:'📊 현황'},{k:'history',l:'📁 기록'}].forEach(t=>tabs.append(h('button',{className:'tab'+(S.tab===t.k?' on':''),onClick:()=>{S.tab=t.k;render();}},t.l)));
   root.append(tabs);
   const ct=h('div',{className:'content'});root.append(ct);
   if(S.tab==='vote')rVote(ct,mv,awayMe,exemptMe);
   if(S.tab==='today')rToday(ct);
   if(S.tab==='away')rAway(ct);
-  if(S.tab==='dogeup')rDogeup(ct);
   if(S.tab==='status')rStatus(ct);
   if(S.tab==='history')rHistory(ct);
   if(S.modal)rModal(root);
@@ -1890,37 +1896,42 @@ function rVote(root,mv,awayMe,exemptMe){
     ));
   }
 
-  const needCI=!selOpt?.exempt||p.dayStatus==='오후반차'||p.dayStatus==='외근'||p.dayStatus==='직출';
-  const needCO=p.dayStatus!=='오후반차'; // 오후반차는 퇴근 투표 불필요
-  const showCI=p.dayStatus==='오전반차'?false:needCI; // 오전반차는 출근 투표 불필요
-  const showCO=p.dayStatus==='오전반차'?true:needCO; // 오전반차는 퇴근 투표 필요
+  // exempt 상태 중 출퇴근 입력이 아예 필요 없는 것들
+  const fullyExempt=selOpt?.exempt && p.dayStatus!=='오전반차' && p.dayStatus!=='오후반차' && p.dayStatus!=='외근' && p.dayStatus!=='직출' && p.dayStatus!=='주말출근';
   
-  if(showCI&&p.dayStatus&&p.dayStatus!=='주말출근'){
-    root.append(mkPendingPoll("======== 출근 =========",fmtD(S.simTime),"복수선택",CLOCK_IN,p.clockIn,t=>{S.pending.clockIn=t;render();}));
-  }
-  if(showCO&&p.dayStatus&&p.dayStatus!=='주말출근'){
-    root.append(mkPendingPoll("======== 퇴근 =========",null,null,CLOCK_OUT,p.clockOut,t=>{S.pending.clockOut=t;render();}));
-  }
-
-  // 주말 출근 별도 등록 (금요일 일반 투표와 분리)
-  {
-    const wk=h('div',{className:'poll'});
-    wk.append(h('div',{className:'poll-hdr'},
-      h('div',{className:'poll-title'},'======== 주말출근 별도 등록 ========='),
-      h('div',{style:{fontSize:'10px',color:'#999',marginTop:'4px'}},'금요일 근태 투표와 별개로 토/일 근무시간만 따로 등록합니다.')
-    ));
-    wk.append(h('div',{className:'poll-opt',onClick:()=>{S.weekendForm.selected=[...(p.weekendDates||[])];S.weekendForm.entries=JSON.parse(JSON.stringify(p.weekendTimeMap||{}));S.modal='weekend';render();}},
-      h('div',{style:{display:'flex',alignItems:'center',gap:'9px'}},
-        h('span',{style:{fontSize:'13px',fontWeight:600}},'📅 토/일별 출근·퇴근 입력')
-      ),
-      h('span',{style:{fontSize:'12px',color:'var(--gold)',fontWeight:600}},p.weekendDates?.length?p.weekendDates.length+'일':'클릭')
-    ));
-    if(p.weekendDates?.length){
-      wk.append(h('div',{style:{padding:'9px 15px',background:'#fffde7',fontSize:'11px',color:'#666'}},['등록:', ...(p.weekendDates||[]).map(d=>h('div',{style:{marginTop:'3px'}}, d+' '+((p.weekendTimeMap&&p.weekendTimeMap[d]?.clockIn)||'')+'~'+((p.weekendTimeMap&&p.weekendTimeMap[d]?.clockOut)||'')+' ('+((p.weekendTimeMap&&p.weekendTimeMap[d]?.hours)||'')+'시간)'))]));
-    } else {
-      wk.append(h('div',{style:{padding:'9px 15px',background:'#fafafa',fontSize:'11px',color:'#999'}},'주말 근무 예정이 없으면 비워두세요.'));
+  if(!fullyExempt){
+    const needCI=!selOpt?.exempt||p.dayStatus==='오후반차'||p.dayStatus==='외근'||p.dayStatus==='직출';
+    const needCO=p.dayStatus!=='오후반차';
+    const showCI=p.dayStatus==='오전반차'?false:needCI;
+    const showCO=p.dayStatus==='오전반차'?true:needCO;
+    
+    if(showCI&&p.dayStatus&&p.dayStatus!=='주말출근'){
+      root.append(mkPendingPoll("======== 출근 =========",fmtD(S.simTime),"복수선택",CLOCK_IN,p.clockIn,t=>{S.pending.clockIn=t;render();}));
     }
-    root.append(wk);
+    if(showCO&&p.dayStatus&&p.dayStatus!=='주말출근'){
+      root.append(mkPendingPoll("======== 퇴근 =========",null,null,CLOCK_OUT,p.clockOut,t=>{S.pending.clockOut=t;render();}));
+    }
+
+    // 주말 출근 별도 등록 (금요일 일반 투표와 분리)
+    {
+      const wk=h('div',{className:'poll'});
+      wk.append(h('div',{className:'poll-hdr'},
+        h('div',{className:'poll-title'},'======== 주말출근 별도 등록 ========='),
+        h('div',{style:{fontSize:'10px',color:'#999',marginTop:'4px'}},'금요일 근태 투표와 별개로 토/일 근무시간만 따로 등록합니다.')
+      ));
+      wk.append(h('div',{className:'poll-opt',onClick:()=>{S.weekendForm.selected=[...(p.weekendDates||[])];S.weekendForm.entries=JSON.parse(JSON.stringify(p.weekendTimeMap||{}));S.modal='weekend';render();}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:'9px'}},
+          h('span',{style:{fontSize:'13px',fontWeight:600}},'📅 토/일별 출근·퇴근 입력')
+        ),
+        h('span',{style:{fontSize:'12px',color:'var(--gold)',fontWeight:600}},p.weekendDates?.length?p.weekendDates.length+'일':'클릭')
+      ));
+      if(p.weekendDates?.length){
+        wk.append(h('div',{style:{padding:'9px 15px',background:'#fffde7',fontSize:'11px',color:'#666'}},['등록:', ...(p.weekendDates||[]).map(d=>h('div',{style:{marginTop:'3px'}}, d+' '+((p.weekendTimeMap&&p.weekendTimeMap[d]?.clockIn)||'')+'~'+((p.weekendTimeMap&&p.weekendTimeMap[d]?.clockOut)||'')+' ('+((p.weekendTimeMap&&p.weekendTimeMap[d]?.hours)||'')+'시간)'))]));
+      } else {
+        wk.append(h('div',{style:{padding:'9px 15px',background:'#fafafa',fontSize:'11px',color:'#999'}},'주말 근무 예정이 없으면 비워두세요.'));
+      }
+      root.append(wk);
+    }
   }
 
   // ★ 확인 버튼 ★
@@ -2592,7 +2603,8 @@ async function dlHistoryWeekly(weekKey){
     if(!resp.ok)throw new Error('no file');
     const buf=await resp.arrayBuffer();
     const wb=XLSX.read(buf,{type:'array',cellStyles:true,cellNF:true,cellDates:true});
-    const ws=wb.Sheets[wb.SheetNames[0]];
+    const wsName=wb.SheetNames.find(n=>n.includes('주 연장근무'))||wb.SheetNames[wb.SheetNames.length-1];
+    const ws=wb.Sheets[wsName];
     ws['B2']={t:'s',v:'연장근무 합계 12시간 이내로 ('+getWeekLabel(d0)+')'};
     weekDates.forEach((wd,i)=>{
       let label=dayLabels[i];
@@ -2609,13 +2621,14 @@ async function dlHistoryWeekly(weekKey){
         let weekTotal=0;
         weekDates.forEach((wd,di)=>{
           const dk=dateKey(wd);
-          if(isAway(v.id,wd)){setCellStr(ws,row,3+di,'부재');}
+          if(isAway(v.id,wd)){const ai=getAway(v.id,wd);setCellStr(ws,row,3+di,ai?.type||'부재');}
           else if(isOffDay(wd)){}
           else{
             const dayRec=localStorage.getItem('day_'+dk);
             if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(r=>r.id===v.id);
               if(rec){
-                if(rec.dayStatus==='해외출장'||rec.dayStatus==='국내출장')setCellStr(ws,row,3+di,rec.dayStatus);
+                const ds=rec.todayStatus||rec.dayStatus;
+                if(ds&&ds!=='출근'){setCellStr(ws,row,3+di,ds);}
                 else{const ot=rec.overtime||0;setCellNum(ws,row,3+di,ot);weekTotal+=ot;}
               }
             }
