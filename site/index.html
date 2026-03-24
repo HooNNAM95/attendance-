@@ -228,18 +228,19 @@ function calcOvertime(clockIn,clockOut){
   const inMin=parseTimeToMin(clockIn),outMin=parseTimeToMin(clockOut);
   if(inMin===null||outMin===null)return 0;
   
-  let otMin=0;
+  // 정상퇴근 = 출근 + 9시간 (8시간 근무 + 1시간 점심)
+  const normalOut=inMin+9*60;
+  // 저녁차감 기준 = 정상퇴근 + 2시간30분
+  const dinnerThreshold=normalOut+2*60+30;
   
-  // 20:00 이상 퇴근 → 퇴근 - 18:30 (저녁 1시간 차감)
-  if(outMin>=20*60){
-    otMin=outMin-(18*60+30);
-  }
-  // 17:30 이후 ~ 20:00 미만 퇴근 → 퇴근 - 17:30
-  else if(outMin>17*60+30){
-    otMin=outMin-(17*60+30);
-  }
-  // 17:30 이하 → 연장 없음
-  else{
+  let otMin=0;
+  if(outMin>=dinnerThreshold){
+    // 저녁 1시간 차감: 퇴근 - (정상퇴근+1시간)
+    otMin=outMin-(normalOut+60);
+  } else if(outMin>normalOut){
+    // 정상퇴근 이후 ~ 저녁차감 전: 퇴근 - 정상퇴근
+    otMin=outMin-normalOut;
+  } else {
     otMin=0;
   }
   
