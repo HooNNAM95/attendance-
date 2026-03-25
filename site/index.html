@@ -2874,25 +2874,27 @@ function rStatus(root){
       const todayDate=new Date(S.simTime.getFullYear(),S.simTime.getMonth(),S.simTime.getDate());
       weekDates.forEach(wd=>{
         const off=isOffDay(wd);const hol=isHoliday(wd);
-        const dk=dateKey(wd),prevDk=dateKey(getPrevWorkday(S.simTime));
+        const dk=dateKey(wd),todayDk=dateKey(S.simTime);
         const wdDate=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate());
         let val='';let valColor='#ccc';
-        const recWeekend=(dk===prevDk)?getWeekendHours(v,wd):(()=>{const dayRec=localStorage.getItem('day_'+dk);if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(rr=>rr.id===v.id);return getWeekendHours(rec,wd);}return 0;})();
+        const recWeekend=(dk===todayDk)?getWeekendHours(v,wd):(()=>{const dayRec=localStorage.getItem('day_'+dk);if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(rr=>rr.id===v.id);return getWeekendHours(rec,wd);}return 0;})();
         if(isAway(v.id,wd)&&recWeekend<=0){const awInfo=getAway(v.id,wd);const awType=awInfo?.type||'부재';val=awType.length>3?awType.slice(0,3):awType;valColor='#1565c0';}
         else if(wdDate>=todayDate){val='';}
         else if(recWeekend>0){val=String(recWeekend);weekTotal+=recWeekend;valColor='#E65100';}
         else if(off){val='';}
-        else if(dk===prevDk){
-          const ds=v.dayStatus;
+        else if(dk===todayDk){
+          // 오늘 투표 데이터 (S.votes에서 실시간)
+          const ds=v.todayStatus||v.dayStatus;
           const ot=calcOvertime(v.clockIn,v.clockOut);
           if(ds&&ds!=='출근'){val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';}
           else if(ot>0){val=String(ot);weekTotal+=ot;valColor='#E65100';}
-          else{val='-';valColor='#ccc';}
+          else if(v.clockIn){val='-';valColor='#ccc';}
+          else{val='';}
         }
         else{const dayRec=localStorage.getItem('day_'+dk);if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(rr=>rr.id===v.id);if(rec){
-          const ds=rec.dayStatus;
+          const ds=rec.todayStatus||rec.dayStatus;
           if(ds&&ds!=='출근'){val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';}
-          else{const rot=rec.overtime||0;if(rot>0){val=String(rot);weekTotal+=rot;valColor='#E65100';}else if(ds==='출근'||rec.clockIn){val='-';valColor='#ccc';}else val='';}
+          else{const rot=calcOvertime(rec.clockIn||'08:30',rec.clockOut||'17:30');if(rot>0){val=String(rot);weekTotal+=rot;valColor='#E65100';}else if(ds==='출근'||rec.clockIn){val='-';valColor='#ccc';}else val='';}
         }}else val='';}
         r.append(h('div',{style:{flex:1,textAlign:'center',fontSize:val.length>2?'8px':'10px',fontWeight:val&&val!=='O'?700:400,
           color:valColor,
