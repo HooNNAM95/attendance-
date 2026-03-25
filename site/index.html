@@ -177,8 +177,8 @@ const CLOCK_IN=["8:30","10:00","10:30","11:00","13:30"];
 const CLOCK_OUT=["17:30","18:00","18:30","19:00","19:30","20:00","20:30","21:00","21:30","22:00","22:30","23:00","23:30","24:00","01:00","02:00","03:00","04:00","05:00","06:00","07:00","08:00"];
 const REMINDERS=[{time:"08:10",label:"1차 알림"},{time:"11:00",label:"2차 알림"},{time:"14:00",label:"3차 알림"},{time:"16:00",label:"최종 알림"}];
 
-// ═══ 2026년 공휴일 데이터 ═══
-const HOLIDAYS_2026={
+// ═══ 공휴일 데이터 (Firebase 기반 + 기본값) ═══
+const DEFAULT_HOLIDAYS_2026={
   '2026-01-01':'신정',
   '2026-02-16':'설날연휴','2026-02-17':'설날','2026-02-18':'설날연휴',
   '2026-03-01':'삼일절','2026-03-02':'대체공휴일(삼일절)',
@@ -192,9 +192,19 @@ const HOLIDAYS_2026={
   '2026-10-03':'개천절','2026-10-05':'대체공휴일(개천절)','2026-10-09':'한글날',
   '2026-12-25':'크리스마스',
 };
+let HOLIDAYS=JSON.parse(localStorage.getItem('holidays')||'null')||{...DEFAULT_HOLIDAYS_2026};
+function saveHolidays(){localStorage.setItem('holidays',JSON.stringify(HOLIDAYS));db.ref('holidays').set(HOLIDAYS);}
+function loadHolidaysFromFB(){
+  db.ref('holidays').once('value',snap=>{
+    const data=snap.val();
+    if(data&&Object.keys(data).length){HOLIDAYS=data;localStorage.setItem('holidays',JSON.stringify(data));render();}
+  });
+}
+function addHoliday(dateStr,name){HOLIDAYS[dateStr]=name;saveHolidays();}
+function deleteHoliday(dateStr){delete HOLIDAYS[dateStr];saveHolidays();}
 function dateKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
-function isHoliday(d){return !!HOLIDAYS_2026[dateKey(d)];}
-function getHolidayName(d){return HOLIDAYS_2026[dateKey(d)]||null;}
+function isHoliday(d){return !!HOLIDAYS[dateKey(d)];}
+function getHolidayName(d){return HOLIDAYS[dateKey(d)]||null;}
 function isWeekend(d){return d.getDay()===0||d.getDay()===6;}
 function isOffDay(d){return isWeekend(d)||isHoliday(d);}
 function getOffDayName(d){if(isHoliday(d))return getHolidayName(d);if(d.getDay()===0)return '일요일';if(d.getDay()===6)return '토요일';return null;}
@@ -867,9 +877,10 @@ function getWeeklyDownloadLabel(baseDate){
 function getNearbyWeekendOptions(baseDate){
   const base=new Date(baseDate.getFullYear(),baseDate.getMonth(),baseDate.getDate());
   const dates=[];
-  for(let i=-7;i<=7;i++){
+  for(let i=-14;i<=14;i++){
     const d=new Date(base);d.setDate(base.getDate()+i);
-    if(d.getDay()===6||d.getDay()===0)dates.push(d);
+    // 토/일 또는 공휴일
+    if(d.getDay()===6||d.getDay()===0||isHoliday(d))dates.push(d);
   }
   const uniq=[]; const seen=new Set();
   dates.forEach(d=>{const k=dateKey(d); if(!seen.has(k)){seen.add(k); uniq.push(d);}});
@@ -1428,10 +1439,7 @@ function fillDailyOvertimeSheet(ws,targetDate,members){
 
   members.forEach((m,i)=>{
     const row=6+i;
-    const carryDate=getCarryWorkDate(targetDate);
-    const carryRec=getExportRecord(m,carryDate);
     const todayRec=getExportRecord(m,targetDate);
-    const info=getWorkInfoForExport(m,targetDate,carryRec);
 
     setCellNum(ws,row,1,i+1);                    // B No
     setCellStr(ws,row,2,m.part||m.dept||'');     // C 팀
@@ -1439,16 +1447,82 @@ function fillDailyOvertimeSheet(ws,targetDate,members){
     setCellStr(ws,row,4,m.rank||'');             // E 직위
     setCellStr(ws,row,5,m.type||'정규');         // F 형태
 
-    // 부재자 처리: 오늘 부재면 출퇴근 시간은 템플릿 디폴트 유지
+    // 부재자 처리
     const todayAway=isAway(m.id,targetDate);
+    const isOff=isOffDay(targetDate);
     
     if(!todayAway){
-      // 전일 근무시간을 현재 날짜 시트에 기입
-      setCellTime(ws,row,6,info.clockOut||'17:30'); // G 확정 퇴근
-      setCellTime(ws,row,8,info.clockIn||'08:30');  // I 실제 출근
-      setCellTime(ws,row,9,info.clockOut||'17:30'); // J 실제 퇴근
-      // K열(연장시간), L열(정상퇴근기준), M열(승인)은 수식이 자동 계산
-      setCellTime(ws,row,14,info.clockOut||'17:30'); // O 담당자 신청 퇴근
+      const dk=dateKey(targetDate);
+      let clockIn='', clockOut='';
+      let hasData=false;
+      
+      if(isOff){
+        // 주말/공휴일: weekendTimeMap에서 주말출근 데이터 확인
+        // 오늘 투표 데이터에서
+        if(dk===dateKey(S.simTime)){
+          const mv=S.votes.find(v=>v.id===m.id);
+          if(mv?.weekendTimeMap&&mv.weekendTimeMap[dk]){
+            clockIn=mv.weekendTimeMap[dk].clockIn||'';
+            clockOut=mv.weekendTimeMap[dk].clockOut||'';
+            hasData=!!(clockIn&&clockOut);
+          }
+        }
+        // 과거 기록에서
+        if(!hasData){
+          const raw=localStorage.getItem('day_'+dk);
+          if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(r=>r.id===m.id||r.name===m.name);
+            if(rec?.weekendTimeMap&&rec.weekendTimeMap[dk]){
+              clockIn=rec.weekendTimeMap[dk].clockIn||'';
+              clockOut=rec.weekendTimeMap[dk].clockOut||'';
+              hasData=!!(clockIn&&clockOut);
+            }
+          }catch(e){}}
+        }
+        // 가장 가까운 투표일(전일/전전일 등)의 weekendTimeMap도 확인
+        if(!hasData){
+          for(let back=1;back<=5;back++){
+            const prevDk=dateKey(new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()-back));
+            const raw2=localStorage.getItem('day_'+prevDk);
+            if(raw2){try{const recs2=JSON.parse(raw2);const rec2=recs2.find(r=>r.id===m.id||r.name===m.name);
+              if(rec2?.weekendTimeMap&&rec2.weekendTimeMap[dk]){
+                clockIn=rec2.weekendTimeMap[dk].clockIn||'';
+                clockOut=rec2.weekendTimeMap[dk].clockOut||'';
+                hasData=!!(clockIn&&clockOut);
+                if(hasData)break;
+              }
+            }catch(e){}}
+          }
+        }
+      } else {
+        // 평일: 해당 날짜의 투표 데이터
+        clockIn='08:30'; clockOut='17:30';
+        if(dk===dateKey(S.simTime)){
+          const mv=S.votes.find(v=>v.id===m.id);
+          if(mv?.clockIn)clockIn=mv.clockIn;
+          if(mv?.clockOut)clockOut=mv.clockOut;
+        } else {
+          const raw=localStorage.getItem('day_'+dk);
+          if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(r=>r.id===m.id||r.name===m.name);
+            if(rec?.clockIn)clockIn=rec.clockIn;
+            if(rec?.clockOut)clockOut=rec.clockOut;
+          }catch(e){}}
+        }
+        hasData=true;
+      }
+      
+      if(hasData&&clockIn&&clockOut){
+        setCellTime(ws,row,6,clockOut);   // G 확정 퇴근
+        setCellTime(ws,row,8,clockIn);    // I 실제 출근
+        setCellTime(ws,row,9,clockOut);   // J 실제 퇴근
+        setCellTime(ws,row,14,clockOut);  // O 담당자 신청 퇴근
+        
+        // K열: 수식이 없는 행에는 직접 연장시간 계산
+        const kAddr=XLSX.utils.encode_cell({r:row,c:10});
+        if(!ws[kAddr]||!ws[kAddr].f){
+          const ot=calcOvertime(clockIn,clockOut);
+          setCellNum(ws,row,10,ot);
+        }
+      }
     }
     
     // N열: 전일(어제) 업무내용
@@ -1489,16 +1563,20 @@ async function dlWeekly(officeFilter){
     }
 
     const today=new Date(S.simTime.getFullYear(),S.simTime.getMonth(),S.simTime.getDate());
-    let dateSheets=[today];
-    let cursor=new Date(today); cursor.setDate(cursor.getDate()-1);
-    if(isOffDay(cursor)){
+    let dateSheets=[];
+    
+    // 어제가 휴일이면 휴일들만 포함 (마지막 출근일은 제외)
+    const yesterday=new Date(today);yesterday.setDate(yesterday.getDate()-1);
+    if(isOffDay(yesterday)){
+      let cursor=new Date(yesterday);
       while(isOffDay(cursor)){
         dateSheets.unshift(new Date(cursor));
         cursor.setDate(cursor.getDate()-1);
       }
-    }else{
-      dateSheets.unshift(new Date(cursor));
+      // 마지막 출근일은 넣지 않음 (이미 제출했으니)
     }
+    // 오늘은 항상 마지막에 추가
+    dateSheets.push(today);
 
     const nextSheets={};
     const nextNames=[];
@@ -1851,6 +1929,92 @@ function rAdmin(root){
   });
   dgBox.append(dgList);
   wrap.append(dgBox);
+
+  // ═══ 📅 공휴일 관리 ═══
+  if(!S.adminHolidayYear)S.adminHolidayYear=new Date().getFullYear();
+  const holBox=h('div',{style:{marginTop:'20px',background:'white',borderRadius:'16px',padding:'20px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}});
+  holBox.append(h('div',{style:{fontSize:'14px',fontWeight:800,marginBottom:'4px',color:'#c62828'}},'📅 공휴일 관리'));
+  
+  // 연도 선택
+  const yrRow=h('div',{style:{display:'flex',gap:'6px',alignItems:'center',marginBottom:'14px'}});
+  yrRow.append(h('button',{className:'btn',style:{padding:'6px 12px',background:'#f5f5f5',borderRadius:'8px'},onClick:()=>{S.adminHolidayYear--;render();}},'◀'));
+  yrRow.append(h('span',{style:{fontSize:'16px',fontWeight:900}},S.adminHolidayYear+'년'));
+  yrRow.append(h('button',{className:'btn',style:{padding:'6px 12px',background:'#f5f5f5',borderRadius:'8px'},onClick:()=>{S.adminHolidayYear++;render();}},'▶'));
+  holBox.append(yrRow);
+  
+  // 공휴일 추가
+  const holAddRow=h('div',{style:{display:'flex',gap:'6px',marginBottom:'14px'}});
+  holAddRow.append(h('input',{type:'date',id:'holDateInput',style:{flex:1,padding:'10px',borderRadius:'9px',border:'2px solid #e5e5e5',fontSize:'13px',fontFamily:'inherit'}}));
+  holAddRow.append(h('input',{placeholder:'명칭 (예: 설날)',id:'holNameInput',style:{flex:1,padding:'10px',borderRadius:'9px',border:'2px solid #e5e5e5',fontSize:'13px',fontFamily:'inherit'}}));
+  holAddRow.append(h('button',{className:'btn',style:{padding:'10px 16px',background:'#c62828',color:'white',borderRadius:'9px',fontSize:'13px',fontWeight:700},
+    onClick:()=>{
+      const di=document.getElementById('holDateInput').value;
+      const ni=document.getElementById('holNameInput').value.trim();
+      if(!di||!ni){alert('날짜와 명칭을 모두 입력하세요.');return;}
+      addHoliday(di,ni);render();
+    }},'➕'));
+  holBox.append(holAddRow);
+  
+  // 해당 연도 공휴일 목록
+  const yearHols=Object.entries(HOLIDAYS).filter(([k])=>k.startsWith(S.adminHolidayYear+'-')).sort((a,b)=>a[0].localeCompare(b[0]));
+  holBox.append(h('div',{style:{fontSize:'11px',fontWeight:700,color:'#555',marginBottom:'6px'}},S.adminHolidayYear+'년 공휴일 '+yearHols.length+'개'));
+  const holList=h('div',{style:{maxHeight:'200px',overflowY:'auto'}});
+  yearHols.forEach(([dk,name])=>{
+    const d=new Date(dk);
+    const dayLabel=['일','월','화','수','목','금','토'][d.getDay()];
+    holList.append(h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px',borderBottom:'1px solid #f0f0f0'}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:'8px'}},
+        h('span',{style:{fontSize:'12px',color:'#999',fontWeight:600}},dk+' ('+dayLabel+')'),
+        h('span',{style:{fontSize:'13px',fontWeight:700}},name)),
+      h('button',{style:{background:'none',border:'none',color:'#c62828',fontSize:'16px',cursor:'pointer',fontWeight:900},onClick:()=>{deleteHoliday(dk);render();}},'×')
+    ));
+  });
+  if(!yearHols.length)holList.append(h('div',{style:{padding:'20px',textAlign:'center',color:'#ccc',fontSize:'12px'}},S.adminHolidayYear+'년 공휴일이 없습니다. 추가해주세요.'));
+  holBox.append(holList);
+  
+  // 기본 공휴일 일괄 등록 버튼
+  holBox.append(h('button',{className:'btn',style:{marginTop:'10px',padding:'10px 16px',background:'#fff3e0',color:'#e65100',borderRadius:'9px',fontSize:'12px',width:'100%'},
+    onClick:()=>{
+      const yr=S.adminHolidayYear;
+      const fixed={'01-01':'신정','03-01':'삼일절','05-05':'어린이날','06-06':'현충일','07-17':'제헌절','08-15':'광복절','09-01':'창립기념일','10-03':'개천절','10-09':'한글날','12-25':'크리스마스'};
+      Object.entries(fixed).forEach(([md,nm])=>{const key=yr+'-'+md;if(!HOLIDAYS[key])HOLIDAYS[key]=nm;});
+      saveHolidays();render();
+      alert(yr+'년 고정 공휴일 10개가 추가되었습니다.\n설날/추석/부처님오신날 등 음력 공휴일은 직접 입력해주세요.');
+    }},'📋 '+S.adminHolidayYear+'년 고정 공휴일 일괄 등록 (음력 제외)'));
+  wrap.append(holBox);
+
+  // ═══ 📊 엑셀 명단 순서 조절 ═══
+  const orderBox=h('div',{style:{marginTop:'20px',background:'white',borderRadius:'16px',padding:'20px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}});
+  orderBox.append(h('div',{style:{fontSize:'14px',fontWeight:800,marginBottom:'4px',color:'#1565c0'}},'📊 엑셀 명단 순서 조절'));
+  orderBox.append(h('div',{style:{fontSize:'11px',color:'#999',marginBottom:'14px'}},'↑↓ 버튼으로 순서를 바꾸세요. 엑셀 다운로드에 반영됩니다.'));
+  
+  if(!S.adminOrderOffice)S.adminOrderOffice='전체';
+  const orderFilter=h('div',{style:{display:'flex',gap:'4px',marginBottom:'10px'}});
+  ['전체','강남','송도'].forEach(o=>{
+    orderFilter.append(h('button',{style:{padding:'6px 12px',borderRadius:'8px',border:S.adminOrderOffice===o?'2px solid #1565c0':'1px solid #ddd',background:S.adminOrderOffice===o?'#e3f2fd':'white',color:S.adminOrderOffice===o?'#1565c0':'#666',fontSize:'11px',fontWeight:700,cursor:'pointer',fontFamily:'inherit'},
+      onClick:()=>{S.adminOrderOffice=o;render();}},o));
+  });
+  orderBox.append(orderFilter);
+  
+  const orderMembers=S.adminOrderOffice==='전체'?getMembers():getMembers().filter(m=>m.office===S.adminOrderOffice);
+  const orderList=h('div',{style:{maxHeight:'300px',overflowY:'auto'}});
+  orderMembers.forEach((m,i)=>{
+    const globalIdx=getMembers().indexOf(m);
+    const row=h('div',{style:{display:'flex',alignItems:'center',gap:'6px',padding:'8px 10px',borderBottom:'1px solid #f0f0f0',background:i%2===0?'white':'#fafafa'}});
+    row.append(h('span',{style:{fontSize:'11px',color:'#999',width:'24px',textAlign:'center',fontWeight:700}},String(i+1)));
+    row.append(h('span',{style:{flex:1,fontSize:'13px',fontWeight:700}},m.name));
+    row.append(h('span',{style:{fontSize:'10px',color:'#888'}},m.dept));
+    row.append(h('span',{className:'office-badge '+(m.office==='강남'?'seoul':'incheon')},m.office));
+    const btns=h('div',{style:{display:'flex',gap:'2px'}});
+    btns.append(h('button',{style:{padding:'4px 8px',border:'1px solid #ddd',borderRadius:'6px',background:'#f5f5f5',cursor:'pointer',fontSize:'11px'},
+      onClick:()=>{if(globalIdx<=0)return;const list=getMembers();[list[globalIdx-1],list[globalIdx]]=[list[globalIdx],list[globalIdx-1]];saveMembers(list);render();}},'↑'));
+    btns.append(h('button',{style:{padding:'4px 8px',border:'1px solid #ddd',borderRadius:'6px',background:'#f5f5f5',cursor:'pointer',fontSize:'11px'},
+      onClick:()=>{const list=getMembers();if(globalIdx>=list.length-1)return;[list[globalIdx],list[globalIdx+1]]=[list[globalIdx+1],list[globalIdx]];saveMembers(list);render();}},'↓'));
+    row.append(btns);
+    orderList.append(row);
+  });
+  orderBox.append(orderList);
+  wrap.append(orderBox);
 
   wrap.append(h('button',{style:{width:'100%',marginTop:'16px',padding:'13px',borderRadius:'11px',border:'none',background:'var(--brown)',color:'white',fontSize:'14px',fontWeight:700,cursor:'pointer',fontFamily:'inherit'},
     onClick:()=>{S.screen='auth';S.adminMode=false;render();}},'✅ 완료 — 로그인 화면으로'));
@@ -3133,8 +3297,8 @@ function rModal(root){
     box.append(btns);
   }
   if(S.modal==='weekend'){
-    box.append(h('h2',null,'💼 주말 출근'));
-    box.append(h('div',{className:'sub'},'토요일/일요일별로 출근·퇴근 시간을 각각 입력하세요.'));
+    box.append(h('h2',null,'💼 주말/공휴일 출근'));
+    box.append(h('div',{className:'sub'},'토·일·공휴일 출근 시간을 각각 입력하세요.'));
     const options=getNearbyWeekendOptions(S.simTime);
     const selectedSet=new Set(S.weekendForm.selected||[]);
     box.append(h('label',null,'날짜 선택'));
@@ -3142,7 +3306,9 @@ function rModal(root){
     options.forEach(dt=>{
       const dk=dateKey(dt);
       const selected=selectedSet.has(dk);
-      list.append(h('button',{type:'button',className:'btn',style:{padding:'10px 8px',borderRadius:'10px',border:selected?'2px solid #003B7B':'1px solid #ddd',background:selected?'#E3F2FD':'white',color:selected?'#003B7B':'#555',fontSize:'11px',fontWeight:700},onClick:()=>{
+      const holName=isHoliday(dt)?getHolidayName(dt):null;
+      const dayLabel=(dt.getMonth()+1)+'/'+dt.getDate()+' ('+['일','월','화','수','목','금','토'][dt.getDay()]+')'+(holName?' '+holName:'');
+      list.append(h('button',{type:'button',className:'btn',style:{padding:'10px 8px',borderRadius:'10px',border:selected?'2px solid #003B7B':'1px solid #ddd',background:selected?'#E3F2FD':holName?'#ffebee':'white',color:selected?'#003B7B':holName?'#c62828':'#555',fontSize:'10px',fontWeight:700},onClick:()=>{
         const arr=new Set(S.weekendForm.selected||[]);
         if(arr.has(dk)){
           arr.delete(dk);
@@ -3154,7 +3320,7 @@ function rModal(root){
         }
         S.weekendForm.selected=[...arr].sort();
         render();
-      }},(dt.getMonth()+1)+'/'+dt.getDate()+' ('+['일','월','화','수','목','금','토'][dt.getDay()]+')'));
+      }},dayLabel));
     });
     box.append(list);
 
@@ -3194,6 +3360,8 @@ function rModal(root){
 
 // ═══ 앱 시작 시 Firebase 동기화 ═══
 (function initFirebaseSync(){
+  // 공휴일 동기화
+  loadHolidaysFromFB();
   // 작업자 명단 동기화
   db.ref('dogeupNames').once('value',snap=>{
     const data=snap.val();
