@@ -1021,6 +1021,23 @@ function applyDailyOTStyle(ws,dataLastRow){
   // 1단계: A1:AD100 흰배경
   fillWhiteBG(ws,99,29);
   
+  // 셀합치기 설정
+  ws['!merges']=[
+    {s:{r:3,c:1},e:{r:5,c:1}},  // B4:B6
+    {s:{r:3,c:2},e:{r:5,c:2}},  // C4:C6
+    {s:{r:3,c:3},e:{r:5,c:3}},  // D4:D6
+    {s:{r:3,c:4},e:{r:5,c:4}},  // E4:E6
+    {s:{r:3,c:5},e:{r:5,c:5}},  // F4:F6
+    {s:{r:4,c:6},e:{r:4,c:7}},  // G5:H5
+    {s:{r:4,c:8},e:{r:4,c:10}}, // I5:K5
+    {s:{r:4,c:11},e:{r:5,c:11}},// L5:L6
+    {s:{r:4,c:12},e:{r:5,c:12}},// M5:M6
+    {s:{r:4,c:13},e:{r:5,c:13}},// N5:N6
+    {s:{r:3,c:16},e:{r:5,c:16}},// Q4:Q6
+    {s:{r:4,c:17},e:{r:5,c:17}},// R5:R6
+    {s:{r:3,c:6},e:{r:3,c:12}}, // G4:M4
+  ];
+  
   // 2단계: 특수 셀 서식
   // B2 Bold 11pt
   const a2=XLSX.utils.encode_cell({r:1,c:1});
@@ -1048,7 +1065,7 @@ function applyDailyOTStyle(ws,dataLastRow){
     if(!ws[addr])ws[addr]={v:'',t:'s'};
     const isException=(r===5&&(c===7||c===10));
     ws[addr].s={font:{name:'맑은 고딕',sz:10,bold:true,color:{rgb:'FFFFFF'}},
-      fill:{fgColor:{rgb:isException?'FFFFFF':'203764'}},
+      fill:{fgColor:{rgb:'203764'}},
       alignment:{horizontal:'center',vertical:'center',wrapText:true},
       border:{top:WH_BORDER,bottom:WH_BORDER,left:WH_BORDER,right:WH_BORDER}};
   }
@@ -1518,12 +1535,11 @@ async function dlWeekly(officeFilter){
     });
 
     // 기존 데이터 영역 값만 비움(서식/병합 유지)
-    clearSheetRange(weeklyWs,3,16,1,11);
+    clearSheetRange(weeklyWs,3,40,1,11);
 
     let row=3;
     Object.entries(teamGroups).forEach(([team,mems])=>{
       mems.forEach((v,mi)=>{
-        if(row>15)return;
         if(mi===0)setCellStr(weeklyWs,row,1,team);
         setCellStr(weeklyWs,row,2,v.name);
 
