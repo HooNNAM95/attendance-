@@ -321,8 +321,10 @@ let S={
   adminMode:false,
   adminPw:'',
   adminErr:'',
-  adminEdit:null, // editing member index or null
+  adminEdit:null,
   adminForm:{id:'',name:'',dept:'',part:'',rank:'프로',type:'정규',office:'강남',junior:false},
+  adminHolidayYear:new Date().getFullYear(),
+  adminOrderOffice:'전체',
 };
 
 // ═══ 주간 기록 저장/불러오기 ═══
@@ -1931,7 +1933,7 @@ function rAdmin(root){
   wrap.append(dgBox);
 
   // ═══ 📅 공휴일 관리 ═══
-  if(!S.adminHolidayYear)S.adminHolidayYear=new Date().getFullYear();
+
   const holBox=h('div',{style:{marginTop:'20px',background:'white',borderRadius:'16px',padding:'20px',boxShadow:'0 1px 4px rgba(0,0,0,0.06)'}});
   holBox.append(h('div',{style:{fontSize:'14px',fontWeight:800,marginBottom:'4px',color:'#c62828'}},'📅 공휴일 관리'));
   
@@ -1988,7 +1990,7 @@ function rAdmin(root){
   orderBox.append(h('div',{style:{fontSize:'14px',fontWeight:800,marginBottom:'4px',color:'#1565c0'}},'📊 엑셀 명단 순서 조절'));
   orderBox.append(h('div',{style:{fontSize:'11px',color:'#999',marginBottom:'14px'}},'↑↓ 버튼으로 순서를 바꾸세요. 엑셀 다운로드에 반영됩니다.'));
   
-  if(!S.adminOrderOffice)S.adminOrderOffice='전체';
+
   const orderFilter=h('div',{style:{display:'flex',gap:'4px',marginBottom:'10px'}});
   ['전체','강남','송도'].forEach(o=>{
     orderFilter.append(h('button',{style:{padding:'6px 12px',borderRadius:'8px',border:S.adminOrderOffice===o?'2px solid #1565c0':'1px solid #ddd',background:S.adminOrderOffice===o?'#e3f2fd':'white',color:S.adminOrderOffice===o?'#1565c0':'#666',fontSize:'11px',fontWeight:700,cursor:'pointer',fontFamily:'inherit'},
@@ -1999,7 +2001,7 @@ function rAdmin(root){
   const orderMembers=S.adminOrderOffice==='전체'?getMembers():getMembers().filter(m=>m.office===S.adminOrderOffice);
   const orderList=h('div',{style:{maxHeight:'300px',overflowY:'auto'}});
   orderMembers.forEach((m,i)=>{
-    const globalIdx=getMembers().indexOf(m);
+    const mid=m.id;
     const row=h('div',{style:{display:'flex',alignItems:'center',gap:'6px',padding:'8px 10px',borderBottom:'1px solid #f0f0f0',background:i%2===0?'white':'#fafafa'}});
     row.append(h('span',{style:{fontSize:'11px',color:'#999',width:'24px',textAlign:'center',fontWeight:700}},String(i+1)));
     row.append(h('span',{style:{flex:1,fontSize:'13px',fontWeight:700}},m.name));
@@ -2007,9 +2009,9 @@ function rAdmin(root){
     row.append(h('span',{className:'office-badge '+(m.office==='강남'?'seoul':'incheon')},m.office));
     const btns=h('div',{style:{display:'flex',gap:'2px'}});
     btns.append(h('button',{style:{padding:'4px 8px',border:'1px solid #ddd',borderRadius:'6px',background:'#f5f5f5',cursor:'pointer',fontSize:'11px'},
-      onClick:()=>{if(globalIdx<=0)return;const list=getMembers();[list[globalIdx-1],list[globalIdx]]=[list[globalIdx],list[globalIdx-1]];saveMembers(list);render();}},'↑'));
+      onClick:()=>{const list=getMembers();const gi=list.findIndex(x=>x.id===mid);if(gi<=0)return;[list[gi-1],list[gi]]=[list[gi],list[gi-1]];saveMembers(list);reloadVotes();render();}},'↑'));
     btns.append(h('button',{style:{padding:'4px 8px',border:'1px solid #ddd',borderRadius:'6px',background:'#f5f5f5',cursor:'pointer',fontSize:'11px'},
-      onClick:()=>{const list=getMembers();if(globalIdx>=list.length-1)return;[list[globalIdx],list[globalIdx+1]]=[list[globalIdx+1],list[globalIdx]];saveMembers(list);render();}},'↓'));
+      onClick:()=>{const list=getMembers();const gi=list.findIndex(x=>x.id===mid);if(gi<0||gi>=list.length-1)return;[list[gi],list[gi+1]]=[list[gi+1],list[gi]];saveMembers(list);reloadVotes();render();}},'↓'));
     row.append(btns);
     orderList.append(row);
   });
