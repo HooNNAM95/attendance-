@@ -214,6 +214,11 @@ function getPrevWorkday(today){
   while(isOffDay(d)){d.setDate(d.getDate()-1);}
   return d;
 }
+function getNextWorkday(date){
+  const d=new Date(date);d.setDate(d.getDate()+1);
+  while(isOffDay(d)){d.setDate(d.getDate()+1);}
+  return d;
+}
 // 오늘이 근무일인지
 function isWorkday(d){return !isOffDay(d);}
 // 알림 울려야 하는 날인지 (근무일만)
@@ -2865,28 +2870,76 @@ function rStatus(root){
       const todayDate=new Date(S.simTime.getFullYear(),S.simTime.getMonth(),S.simTime.getDate());
       weekDates.forEach(wd=>{
         const off=isOffDay(wd);const hol=isHoliday(wd);
-        const dk=dateKey(wd),todayDk=dateKey(S.simTime);
+        const dk=dateKey(wd);
         const wdDate=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate());
         let val='';let valColor='#ccc';
-        const recWeekend=(dk===todayDk)?getWeekendHours(v,wd):(()=>{const dayRec=localStorage.getItem('day_'+dk);if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(rr=>rr.id===v.id);return getWeekendHours(rec,wd);}return 0;})();
+        
+        // 주말출근 확인: wd 날짜의 weekendTimeMap
+        let recWeekend=0;
+        // 오늘 투표 데이터에서 주말출근 확인
+        if(v.weekendHoursMap&&v.weekendHoursMap[dk])recWeekend=Number(v.weekendHoursMap[dk])||0;
+        if(recWeekend<=0){
+          // 과거 투표기록에서 확인 (wd의 다음 근무일에 투표했을 수 있음)
+          for(let fwd=0;fwd<=5;fwd++){
+            const chkDk=dateKey(new Date(wd.getFullYear(),wd.getMonth(),wd.getDate()+fwd));
+            const raw=localStorage.getItem('day_'+chkDk);
+            if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(rr=>rr.id===v.id||rr.name===v.name);
+              if(rec?.weekendHoursMap&&rec.weekendHoursMap[dk])recWeekend=Number(rec.weekendHoursMap[dk])||0;
+              if(rec?.weekendTimeMap&&rec.weekendTimeMap[dk]?.hours)recWeekend=Number(rec.weekendTimeMap[dk].hours)||0;
+              if(recWeekend>0)break;
+            }catch(e){}}
+          }
+        }
+        
         if(isAway(v.id,wd)&&recWeekend<=0){const awInfo=getAway(v.id,wd);const awType=awInfo?.type||'부재';val=awType.length>3?awType.slice(0,3):awType;valColor='#1565c0';}
         else if(wdDate>=todayDate){val='';}
         else if(recWeekend>0){val=String(recWeekend);weekTotal+=recWeekend;valColor='#E65100';}
         else if(off){val='';}
-        else if(dk===todayDk){
-          // 오늘 투표 데이터 (S.votes에서 실시간)
-          const ds=v.todayStatus||v.dayStatus;
-          const ot=calcOvertime(v.clockIn,v.clockOut);
-          if(ds&&ds!=='출근'){val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';}
-          else if(ot>0){val=String(ot);weekTotal+=ot;valColor='#E65100';}
-          else if(v.clockIn){val='-';valColor='#ccc';}
+        else{
+          // 평일: wd 날짜의 출퇴근 데이터 찾기
+          // 투표는 다음날(wd+1)에 하므로 day_(wd+1) 기록에서 clockIn/clockOut 확인
+          // 또는 오늘 투표 데이터가 wd의 다음날이면 S.votes에서
+          let clockIn=null,clockOut=null,dayStatus=null;
+          const prevDay=getPrevWorkday(S.simTime);
+          const prevDk=dateKey(prevDay);
+          
+          if(dk===prevDk){
+            // wd가 오늘의 전일 근무일 = 오늘 투표한 출퇴근 시간
+            clockIn=v.clockIn;
+            clockOut=v.clockOut;
+            dayStatus=v.todayStatus||v.dayStatus;
+          } else {
+            // 과거: wd의 다음 근무일(=투표일)의 기록에서 출퇴근 시간 가져오기
+            // 먼저 wd+1 날짜의 투표 기록 확인
+            const nextDay=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate()+1);
+            for(let fwd=0;fwd<=3;fwd++){
+              const voteDk=dateKey(new Date(nextDay.getFullYear(),nextDay.getMonth(),nextDay.getDate()+fwd));
+              const raw=localStorage.getItem('day_'+voteDk);
+              if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(rr=>rr.id===v.id||rr.name===v.name);
+                if(rec&&(rec.clockIn||rec.dayStatus)){
+                  clockIn=rec.clockIn;clockOut=rec.clockOut;
+                  dayStatus=rec.todayStatus||rec.dayStatus;break;
+                }
+              }catch(e){}}
+            }
+            // 그래도 없으면 해당 날짜 기록 자체 확인
+            if(!clockIn&&!dayStatus){
+              const raw=localStorage.getItem('day_'+dk);
+              if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(rr=>rr.id===v.id||rr.name===v.name);
+                if(rec){clockIn=rec.clockIn;clockOut=rec.clockOut;dayStatus=rec.todayStatus||rec.dayStatus;}
+              }catch(e){}}
+            }
+          }
+          
+          if(dayStatus&&dayStatus!=='출근'){val=dayStatus.length>3?dayStatus.slice(0,3):dayStatus;valColor='#7b1fa2';}
+          else if(clockIn&&clockOut){
+            const ot=calcOvertime(clockIn,clockOut);
+            if(ot>0){val=String(ot);weekTotal+=ot;valColor='#E65100';}
+            else{val='-';valColor='#ccc';}
+          }
+          else if(clockIn||dayStatus==='출근'){val='-';valColor='#ccc';}
           else{val='';}
         }
-        else{const dayRec=localStorage.getItem('day_'+dk);if(dayRec){const recs=JSON.parse(dayRec);const rec=recs.find(rr=>rr.id===v.id);if(rec){
-          const ds=rec.todayStatus||rec.dayStatus;
-          if(ds&&ds!=='출근'){val=ds.length>3?ds.slice(0,3):ds;valColor='#7b1fa2';}
-          else{const rot=calcOvertime(rec.clockIn||'08:30',rec.clockOut||'17:30');if(rot>0){val=String(rot);weekTotal+=rot;valColor='#E65100';}else if(ds==='출근'||rec.clockIn){val='-';valColor='#ccc';}else val='';}
-        }}else val='';}
         r.append(h('div',{style:{flex:1,textAlign:'center',fontSize:val.length>2?'8px':'10px',fontWeight:val&&val!=='O'?700:400,
           color:valColor,
           background:hol?'#ffebee':off?'#f5f5f5':wdDate>=todayDate?'#f9f9f9':'transparent',borderRadius:'3px',padding:'2px 0'}},val||'—'));
@@ -3331,7 +3384,7 @@ function rModal(root){
     box.append(sel2);
     box.append(h('label',null,'시작일'));box.append(h('input',{type:'date',value:S.awayForm.from,onChange:e=>{S.awayForm.from=e.target.value;}}));
     box.append(h('label',null,'종료일'));box.append(h('input',{type:'date',value:S.awayForm.to,onChange:e=>{S.awayForm.to=e.target.value;}}));
-    box.append(h('label',null,'메모'));box.append(h('input',{placeholder:'예) VINA 출장',value:S.awayForm.memo,onInput:e=>{S.awayForm.memo=e.target.value;}}));
+    box.append(h('label',null,'메모'));box.append(h('input',{placeholder:'예) 미국 본사 출장',value:S.awayForm.memo,onInput:e=>{S.awayForm.memo=e.target.value;}}));
     box.append(h('div',{className:'info-box',style:{background:'#e3f2fd',color:'#1565c0'}},'⏸️ 기간 내: 알림 안감 · 미투표 제외 · 현황에 부재 사유 자동 표시'));
     const btns=h('div',{style:{display:'flex',gap:'7px',marginTop:'4px'}});
     btns.append(h('button',{className:'btn',style:{flex:1,padding:'13px',background:'#f5f5f5',color:'#666',borderRadius:'11px'},onClick:()=>{S.modal=null;render();}},'취소'));
