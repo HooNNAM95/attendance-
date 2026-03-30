@@ -545,7 +545,11 @@ function reloadVotes(){
   
   // Firebase에서 실시간 동기화 (다른 사람 투표도 반영)
   fbLoadDayVotes(dayKey,fbData=>{
-    if(!fbData)return;
+    if(!fbData){
+      // Firebase에 데이터 없으면 여기서 자동입력 시도
+      tryAutoFill();
+      return;
+    }
     const fbRecords=Object.values(fbData);
     let changed=false;
     S.votes=S.votes.map(v=>{
@@ -564,6 +568,8 @@ function reloadVotes(){
       reason:v.reason,location:v.location,overtime:calcOvertime(v.clockIn,v.clockOut),weekendDates:v.weekendDates||[],weekendHoursMap:v.weekendHoursMap||{},weekendTimeMap:v.weekendTimeMap||{},junior:v.junior}));
     localStorage.setItem('day_'+dayKey,JSON.stringify(record));
     if(changed)render();
+    // Firebase 로드 완료 후 자동입력 시도
+    tryAutoFill();
   });
   
   // 금일 상태도 Firebase에서 로드
@@ -613,15 +619,22 @@ function schedNotifs(){
   const now=new Date(),today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
   [{h:8,m:10,l:"1차 출근 알림"},{h:11,m:0,l:"2차 알림"},{h:14,m:0,l:"3차 알림"},{h:16,m:0,l:"최종 알림"}].forEach(t=>{const target=new Date(today.getFullYear(),today.getMonth(),today.getDate(),t.h,t.m),diff=target-now;if(diff>0)setTimeout(()=>push("📢 재영근태관리",t.l),diff);});
   
-  // 16:30 자동입력: 투표/금일상태 안 한 사람 → 8:30출근 17:30퇴근 + 금일출근
+  // 16:30 자동입력 타이머 (아직 16:30 전이면)
   const autoTarget=new Date(today.getFullYear(),today.getMonth(),today.getDate(),16,30);
   const autoDiff=autoTarget-now;
   if(autoDiff>0){
-    setTimeout(()=>{autoFillDefaults();},autoDiff);
-  } else if(now.getHours()>=16&&now.getMinutes()>=30){
-    // 이미 4시반 지났으면 로그인 시 바로 실행
-    autoFillDefaults();
+    setTimeout(()=>{tryAutoFill();},autoDiff);
   }
+  // 이미 16:30 지났으면 Firebase 로드 후 tryAutoFill이 호출됨 (reloadVotes 내부)
+}
+
+// Firebase 로드 완료 후 호출되는 자동입력
+function tryAutoFill(){
+  const now=new Date();
+  const nowMinutes=now.getHours()*60+now.getMinutes();
+  if(!isWorkday(now))return;
+  if(nowMinutes<16*60+30)return; // 16:30 전이면 실행 안 함
+  autoFillDefaults();
 }
 
 function autoFillDefaults(){
