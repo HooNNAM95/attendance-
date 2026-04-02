@@ -531,8 +531,9 @@ function reloadVotes(){
     const savedRec=saved?saved.find(r=>r.id===m.id):null;
     if(existing&&existing.confirmed)return{...existing,...m};
     if(savedRec){
+      const tsManual=savedRec.todayStatusManual||false;
       return{...m,dayStatus:savedRec.dayStatus||null,clockIn:savedRec.clockIn||null,clockOut:savedRec.clockOut||null,
-        todayStatus:savedRec.todayStatus||null,todayStatusManual:savedRec.todayStatusManual||false,weekendDates:savedRec.weekendDates||[],weekendHoursMap:savedRec.weekendHoursMap||{},
+        todayStatus:tsManual?(savedRec.todayStatus||null):null,todayStatusManual:tsManual,weekendDates:savedRec.weekendDates||[],weekendHoursMap:savedRec.weekendHoursMap||{},
         reason:savedRec.reason||'',location:savedRec.location||'',
         confirmed:!!(savedRec.dayStatus||savedRec.clockIn),
         reminders:[],juniorNotified:false};
@@ -555,7 +556,7 @@ function reloadVotes(){
       if(fbRec&&!v.confirmed){
         changed=true;
         return{...v,dayStatus:fbRec.dayStatus||v.dayStatus,clockIn:fbRec.clockIn||v.clockIn,clockOut:fbRec.clockOut||v.clockOut,
-          todayStatus:fbRec.todayStatus||v.todayStatus,weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
+          todayStatus:(fbRec.todayStatusManual)?(fbRec.todayStatus||v.todayStatus):v.todayStatus,todayStatusManual:fbRec.todayStatusManual||v.todayStatusManual||false,weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
           confirmed:!!(fbRec.dayStatus||fbRec.clockIn)};
       }
       return v;
@@ -581,7 +582,9 @@ function reloadVotes(){
     S.votes=S.votes.map(v=>{
       const fbRec=fbRecords.find(r=>r.id===v.id);
       if(fbRec){
-        const newDS=fbRec.dayStatus||null,newCI=fbRec.clockIn||null,newCO=fbRec.clockOut||null,newTS=fbRec.todayStatus||null;
+        const newDS=fbRec.dayStatus||null,newCI=fbRec.clockIn||null,newCO=fbRec.clockOut||null;
+        const newTSManual=fbRec.todayStatusManual||false;
+        const newTS=newTSManual?(fbRec.todayStatus||null):null;
         if(newDS!==v.dayStatus||newCI!==v.clockIn||newCO!==v.clockOut||newTS!==v.todayStatus){
           changed=true;
           return{...v,dayStatus:newDS,clockIn:newCI,clockOut:newCO,todayStatus:newTS,todayStatusManual:fbRec.todayStatusManual||false,
@@ -2798,7 +2801,7 @@ function rStatus(root){
       if(away){
         displayStatus=awInfo?.type||'부재';
         stBg='#e3f2fd';stCl='#1565c0';
-      } else if(v.todayStatus&&v.todayStatusManual){
+      } else if(v.todayStatus){
         displayStatus=v.todayStatus;
         if(v.todayStatus==='출근'){stBg='#e8f5e9';stCl='#2e7d32';}
         else{stBg='#f3e5f5';stCl='#7b1fa2';}
