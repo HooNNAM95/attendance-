@@ -1642,10 +1642,34 @@ async function dlWeekly(officeFilter){
           // 주말/공휴일 빈칸
           if(isOffDay(wd))return;
 
-          // 해당 날짜의 투표 데이터 직접 가져오기
+          // 해당 날짜의 출퇴근 데이터: 다음 근무일(투표일)의 기록에서 가져오기
           const dk=dateKey(wd);
-          const rec=getExportRecord(v,wd);
-          const st=rec?.todayStatus||rec?.dayStatus||'';
+          const prevDay=getPrevWorkday(S.simTime);
+          const prevDk=dateKey(prevDay);
+          let clockIn=null,clockOut=null,st='';
+          
+          if(dk===prevDk){
+            // wd가 오늘의 전일 근무일 = S.votes에서 실시간
+            clockIn=v.clockIn;
+            clockOut=v.clockOut;
+            st=v.todayStatus||v.dayStatus||'';
+          } else {
+            // 과거: wd의 다음 근무일(투표일) 기록에서 가져오기
+            const nextWorkday=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate()+1);
+            while(isOffDay(nextWorkday)){nextWorkday.setDate(nextWorkday.getDate()+1);}
+            const voteDk=dateKey(nextWorkday);
+            const raw=localStorage.getItem('day_'+voteDk);
+            if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(rr=>rr.id===v.id||rr.name===v.name);
+              if(rec){clockIn=rec.clockIn;clockOut=rec.clockOut;st=rec.todayStatus||rec.dayStatus||'';}
+            }catch(e){}}
+            // 못 찾으면 해당 날짜 기록도 확인
+            if(!clockIn&&!st){
+              const raw2=localStorage.getItem('day_'+dk);
+              if(raw2){try{const recs2=JSON.parse(raw2);const rec2=recs2.find(rr=>rr.id===v.id||rr.name===v.name);
+                if(rec2){clockIn=rec2.clockIn;clockOut=rec2.clockOut;st=rec2.todayStatus||rec2.dayStatus||'';}
+              }catch(e){}}
+            }
+          }
           
           // 해외출장/연차 등 특수 상태
           if(st&&weeklyStatusTextSet.has(st)){
@@ -1653,9 +1677,9 @@ async function dlWeekly(officeFilter){
             return;
           }
 
-          // 연장근무 계산: 저장된 overtime 값 또는 출퇴근 시간으로 직접 계산
-          const ci=rec?.clockIn||'08:30';
-          const co=rec?.clockOut||'17:30';
+          // 연장근무 계산
+          const ci=clockIn||'08:30';
+          const co=clockOut||'17:30';
           const ot=calcOvertime(ci,co);
           
           if(ot>0){
