@@ -354,14 +354,12 @@ function saveDayRecord(){
   S.votes.forEach(v=>{
     if(v.dayStatus||v.clockIn||v.clockOut){
       const data={id:v.id,name:v.name,dept:v.dept,part:v.part||v.dept,rank:v.rank||'',type:v.type||'정규',office:v.office,
-        dayStatus:v.dayStatus||null,todayStatus:v.todayStatus||null,clockIn:v.clockIn||null,clockOut:v.clockOut||null,
+        dayStatus:v.dayStatus||null,todayStatus:v.todayStatus||null,todayStatusManual:v.todayStatusManual||false,clockIn:v.clockIn||null,clockOut:v.clockOut||null,
         reason:v.reason||'',location:v.location||'',overtime:calcOvertime(v.clockIn,v.clockOut),
         weekendDates:v.weekendDates||[],weekendHoursMap:v.weekendHoursMap||{},weekendTimeMap:v.weekendTimeMap||{},junior:v.junior||false};
       fbSaveVote(v.id,dayKey,data);
     }
-    if(v.todayStatus){
-      fbSaveTodayStatus(v.id,dayKey,v.todayStatus);
-    }
+    // todayStatus는 votes/ 경로에 이미 포함됨
   });
   
   // 주간 인덱스도 Firebase에 저장
@@ -370,7 +368,7 @@ function saveDayRecord(){
   
   // localStorage에도 백업 (오프라인용)
   const record=S.votes.map(v=>({id:v.id,name:v.name,dept:v.dept,part:v.part||v.dept,rank:v.rank||'',type:v.type||'정규',office:v.office,
-    dayStatus:v.dayStatus,todayStatus:v.todayStatus||null,clockIn:v.clockIn,clockOut:v.clockOut,
+    dayStatus:v.dayStatus,todayStatus:v.todayStatus||null,todayStatusManual:v.todayStatusManual||false,clockIn:v.clockIn,clockOut:v.clockOut,
     reason:v.reason,location:v.location,overtime:calcOvertime(v.clockIn,v.clockOut),
     weekendDates:v.weekendDates,weekendHoursMap:v.weekendHoursMap||{},weekendTimeMap:v.weekendTimeMap||{},junior:v.junior}));
   localStorage.setItem('day_'+dayKey,JSON.stringify(record));
@@ -534,7 +532,7 @@ function reloadVotes(){
     if(existing&&existing.confirmed)return{...existing,...m};
     if(savedRec){
       return{...m,dayStatus:savedRec.dayStatus||null,clockIn:savedRec.clockIn||null,clockOut:savedRec.clockOut||null,
-        todayStatus:savedRec.todayStatus||null,weekendDates:savedRec.weekendDates||[],weekendHoursMap:savedRec.weekendHoursMap||{},
+        todayStatus:savedRec.todayStatus||null,todayStatusManual:savedRec.todayStatusManual||false,weekendDates:savedRec.weekendDates||[],weekendHoursMap:savedRec.weekendHoursMap||{},
         reason:savedRec.reason||'',location:savedRec.location||'',
         confirmed:!!(savedRec.dayStatus||savedRec.clockIn),
         reminders:[],juniorNotified:false};
@@ -564,7 +562,7 @@ function reloadVotes(){
     });
     // localStorage 캐시 업데이트
     const record=S.votes.map(v=>({id:v.id,name:v.name,dept:v.dept,part:v.part||v.dept,rank:v.rank||'',type:v.type||'정규',office:v.office,
-      dayStatus:v.dayStatus,todayStatus:v.todayStatus||null,clockIn:v.clockIn,clockOut:v.clockOut,
+      dayStatus:v.dayStatus,todayStatus:v.todayStatus||null,todayStatusManual:v.todayStatusManual||false,clockIn:v.clockIn,clockOut:v.clockOut,
       reason:v.reason,location:v.location,overtime:calcOvertime(v.clockIn,v.clockOut),weekendDates:v.weekendDates||[],weekendHoursMap:v.weekendHoursMap||{},weekendTimeMap:v.weekendTimeMap||{},junior:v.junior}));
     localStorage.setItem('day_'+dayKey,JSON.stringify(record));
     if(changed)render();
@@ -573,15 +571,7 @@ function reloadVotes(){
   });
   
   // 금일 상태도 Firebase에서 로드
-  fbLoadTodayStatuses(dayKey,todayData=>{
-    if(!todayData)return;
-    let changed=false;
-    S.votes=S.votes.map(v=>{
-      if(todayData[v.id]&&!v.todayStatus){v.todayStatus=todayData[v.id];changed=true;}
-      return v;
-    });
-    if(changed)render();
-  });
+  // 금일 상태는 votes/ 경로에서만 로드 (today/ 경로는 사용하지 않음)
   
   // 실시간 리스너 (다른 사람이 투표하면 즉시 반영)
   fbListenDayVotes(dayKey,fbData=>{
@@ -594,7 +584,7 @@ function reloadVotes(){
         const newDS=fbRec.dayStatus||null,newCI=fbRec.clockIn||null,newCO=fbRec.clockOut||null,newTS=fbRec.todayStatus||null;
         if(newDS!==v.dayStatus||newCI!==v.clockIn||newCO!==v.clockOut||newTS!==v.todayStatus){
           changed=true;
-          return{...v,dayStatus:newDS,clockIn:newCI,clockOut:newCO,todayStatus:newTS,
+          return{...v,dayStatus:newDS,clockIn:newCI,clockOut:newCO,todayStatus:newTS,todayStatusManual:fbRec.todayStatusManual||false,
             reason:fbRec.reason||'',location:fbRec.location||'',
             weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},confirmed:!!(newDS||newCI)};
         }
@@ -603,7 +593,7 @@ function reloadVotes(){
     });
     if(changed){
       const record=S.votes.map(v=>({id:v.id,name:v.name,dept:v.dept,part:v.part||v.dept,rank:v.rank||'',type:v.type||'정규',office:v.office,
-        dayStatus:v.dayStatus,todayStatus:v.todayStatus||null,clockIn:v.clockIn,clockOut:v.clockOut,
+        dayStatus:v.dayStatus,todayStatus:v.todayStatus||null,todayStatusManual:v.todayStatusManual||false,clockIn:v.clockIn,clockOut:v.clockOut,
         reason:v.reason,location:v.location,overtime:calcOvertime(v.clockIn,v.clockOut),weekendDates:v.weekendDates||[],weekendHoursMap:v.weekendHoursMap||{},weekendTimeMap:v.weekendTimeMap||{},junior:v.junior}));
       localStorage.setItem('day_'+dayKey,JSON.stringify(record));
       render();
@@ -654,11 +644,7 @@ function autoFillDefaults(){
       updated.confirmed=true;
       changed=true;
     }
-    // 금일 상태 안 했으면 → 출근
-    if(!v.todayStatus){
-      updated.todayStatus='출근';
-      changed=true;
-    }
+    // 금일 상태는 자동입력하지 않음 (직접 선택해야 함)
     return updated;
   });
   if(changed){
@@ -2091,7 +2077,7 @@ function rToday(root){
         const opt=DAY_STATUS.find(o=>o.key===key);if(!opt)return;
         grid.append(h('div',{className:'ds-card'+(mv?.todayStatus===key?' sel':''),onClick:()=>{
           const nextStatus = mv?.todayStatus===key ? null : key;
-          S.votes=S.votes.map(v=>v.id===S.user.id?{...v,todayStatus:nextStatus}:v);S.todayEtcOpen=false;saveDayRecord();render();
+          S.votes=S.votes.map(v=>v.id===S.user.id?{...v,todayStatus:nextStatus,todayStatusManual:!!nextStatus}:v);S.todayEtcOpen=false;saveDayRecord();render();
         }},h('div',{className:'ds-icon'},opt.icon),h('div',{className:'ds-label'},opt.label),h('div',{className:'ds-sub'},opt.desc)));
       });
       // 기타 버튼
@@ -2106,7 +2092,7 @@ function rToday(root){
         const egrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',margin:'6px 0 10px'}});
         DAY_STATUS.filter(d=>!MAIN_STATUS_KEYS.includes(d.key)&&d.key!=='주말출근').forEach(opt=>{
           egrid.append(h('div',{style:{padding:'10px 8px',borderRadius:'10px',background:mv?.todayStatus===opt.key?'#fffde7':'white',border:mv?.todayStatus===opt.key?'1.5px solid var(--gold)':'1.5px solid #eee',cursor:'pointer',textAlign:'center',fontSize:'11px',fontWeight:mv?.todayStatus===opt.key?800:600,color:mv?.todayStatus===opt.key?'var(--brown)':'#555',transition:'all .12s'},
-            onClick:()=>{const nextStatus = mv?.todayStatus===opt.key ? null : opt.key;S.votes=S.votes.map(v=>v.id===S.user.id?{...v,todayStatus:nextStatus}:v);saveDayRecord();render();}},opt.icon+' '+opt.label));
+            onClick:()=>{const nextStatus = mv?.todayStatus===opt.key ? null : opt.key;S.votes=S.votes.map(v=>v.id===S.user.id?{...v,todayStatus:nextStatus,todayStatusManual:!!nextStatus}:v);saveDayRecord();render();}},opt.icon+' '+opt.label));
         });
         w.append(egrid);
       }
@@ -2806,22 +2792,16 @@ function rStatus(root){
       const ot=calcOvertime(v.clockIn,v.clockOut);
       const hasV=v.clockIn||ex;
       
-      // 상태 결정: 부재 > 금일상태 > 전일상태 > 미선택
+      // 상태 결정: 부재 > 금일상태 > 미선택 (금일상태 안 했으면 미선택)
       let displayStatus='미선택';
       let stBg='#ffebee',stCl='#c62828';
       if(away){
         displayStatus=awInfo?.type||'부재';
         stBg='#e3f2fd';stCl='#1565c0';
-      } else if(v.todayStatus){
+      } else if(v.todayStatus&&v.todayStatusManual){
         displayStatus=v.todayStatus;
         if(v.todayStatus==='출근'){stBg='#e8f5e9';stCl='#2e7d32';}
         else{stBg='#f3e5f5';stCl='#7b1fa2';}
-      } else if(v.dayStatus){
-        displayStatus=v.dayStatus;
-        stBg='#e8f5e9';stCl='#2e7d32';
-      } else if(v.clockIn){
-        displayStatus='출근';
-        stBg='#e8f5e9';stCl='#2e7d32';
       }
       
       const r=h('div',{style:{display:'grid',gridTemplateColumns:grid6,gap:'1px',padding:'9px 13px',alignItems:'center',textAlign:'center',fontSize:'10px',borderBottom:'1px solid #f5f5f5',background:away?'#f0f7ff':ex?'#f3f8ff':!hasV?'#fff8f8':'white'}});
