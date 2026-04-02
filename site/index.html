@@ -2922,26 +2922,19 @@ function rStatus(root){
             clockOut=v.clockOut;
             dayStatus=v.todayStatus||v.dayStatus;
           } else {
-            // 과거: wd의 다음 근무일(=투표일)의 기록에서 출퇴근 시간 가져오기
-            // 먼저 wd+1 날짜의 투표 기록 확인
-            const nextDay=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate()+1);
-            for(let fwd=0;fwd<=3;fwd++){
-              const voteDk=dateKey(new Date(nextDay.getFullYear(),nextDay.getMonth(),nextDay.getDate()+fwd));
-              const raw=localStorage.getItem('day_'+voteDk);
-              if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(rr=>rr.id===v.id||rr.name===v.name);
-                if(rec&&(rec.clockIn||rec.dayStatus)){
-                  clockIn=rec.clockIn;clockOut=rec.clockOut;
-                  dayStatus=rec.todayStatus||rec.dayStatus;break;
-                }
-              }catch(e){}}
-            }
-            // 그래도 없으면 해당 날짜 기록 자체 확인
-            if(!clockIn&&!dayStatus){
-              const raw=localStorage.getItem('day_'+dk);
-              if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(rr=>rr.id===v.id||rr.name===v.name);
-                if(rec){clockIn=rec.clockIn;clockOut=rec.clockOut;dayStatus=rec.todayStatus||rec.dayStatus;}
-              }catch(e){}}
-            }
+            // 과거: wd의 다음날(=투표일) 기록에서 출퇴근 시간 가져오기
+            // wd+1 날짜의 투표 기록만 확인 (투표는 다음 근무일에 하므로)
+            const nextWorkday=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate()+1);
+            // 다음 근무일 찾기 (wd 다음날이 휴일이면 건너뜀)
+            while(isOffDay(nextWorkday)){nextWorkday.setDate(nextWorkday.getDate()+1);}
+            const voteDk=dateKey(nextWorkday);
+            const raw=localStorage.getItem('day_'+voteDk);
+            if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(rr=>rr.id===v.id||rr.name===v.name);
+              if(rec&&(rec.clockIn||rec.dayStatus)){
+                clockIn=rec.clockIn;clockOut=rec.clockOut;
+                dayStatus=rec.todayStatus||rec.dayStatus;
+              }
+            }catch(e){}}
           }
           
           if(dayStatus&&dayStatus!=='출근'){val=dayStatus.length>3?dayStatus.slice(0,3):dayStatus;valColor='#7b1fa2';}
