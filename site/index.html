@@ -1450,18 +1450,17 @@ function fillDailyOvertimeSheet(ws,targetDate,members){
     setCellStr(ws,row,4,m.rank||'');             // E 직위
     setCellStr(ws,row,5,m.type||'정규');         // F 형태
 
-    // 부재자 처리
+    // 부재 여부와 관계없이 I/J열(전일 출퇴근)은 채움
     const todayAway=isAway(m.id,targetDate);
-    const isOff=isOffDay(targetDate);
+    const isOffDate=isOffDay(targetDate);
     
-    if(!todayAway){
+    {
       const dk=dateKey(targetDate);
       let clockIn='', clockOut='';
       let hasData=false;
       
-      if(isOff){
+      if(isOffDate){
         // 주말/공휴일: weekendTimeMap에서 주말출근 데이터 확인
-        // 오늘 투표 데이터에서
         if(dk===dateKey(S.simTime)){
           const mv=S.votes.find(v=>v.id===m.id);
           if(mv?.weekendTimeMap&&mv.weekendTimeMap[dk]){
@@ -1470,7 +1469,6 @@ function fillDailyOvertimeSheet(ws,targetDate,members){
             hasData=!!(clockIn&&clockOut);
           }
         }
-        // 과거 기록에서
         if(!hasData){
           const raw=localStorage.getItem('day_'+dk);
           if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(r=>r.id===m.id||r.name===m.name);
@@ -1481,7 +1479,6 @@ function fillDailyOvertimeSheet(ws,targetDate,members){
             }
           }catch(e){}}
         }
-        // 가장 가까운 투표일(전일/전전일 등)의 weekendTimeMap도 확인
         if(!hasData){
           for(let back=1;back<=5;back++){
             const prevDk=dateKey(new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()-back));
@@ -1497,14 +1494,18 @@ function fillDailyOvertimeSheet(ws,targetDate,members){
           }
         }
       } else {
-        // 평일: 해당 날짜의 투표 데이터
+        // 평일: 해당 날짜 시트의 I/J열 = 오늘 투표한 전일 출퇴근
         clockIn='08:30'; clockOut='17:30';
         if(dk===dateKey(S.simTime)){
           const mv=S.votes.find(v=>v.id===m.id);
           if(mv?.clockIn)clockIn=mv.clockIn;
           if(mv?.clockOut)clockOut=mv.clockOut;
         } else {
-          const raw=localStorage.getItem('day_'+dk);
+          // 과거: 다음 근무일(투표일) 기록에서 출퇴근 가져오기
+          const nextWorkday=new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()+1);
+          while(isOffDay(nextWorkday)){nextWorkday.setDate(nextWorkday.getDate()+1);}
+          const voteDk=dateKey(nextWorkday);
+          const raw=localStorage.getItem('day_'+voteDk);
           if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(r=>r.id===m.id||r.name===m.name);
             if(rec?.clockIn)clockIn=rec.clockIn;
             if(rec?.clockOut)clockOut=rec.clockOut;
