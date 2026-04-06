@@ -777,6 +777,15 @@ function confirmVote(){
   addChat("bot","✅ "+S.user.name+"님 투표 확정!","confirm");
   save();
   S.pending={dayStatus:null,clockIn:null,clockOut:null,reason:'',location:'',weekendDates:[],weekendHours:'',weekendTimeMap:{}};S.editing=false;
+  
+  // 금일 상태 미선택이면 알림
+  const mvAfter=myV();
+  if(!mvAfter?.todayStatus||!mvAfter?.todayStatusManual){
+    setTimeout(()=>{
+      S.modal='todayReminder';
+      render();
+    },500);
+  }
   render();
 }
 
@@ -1450,81 +1459,72 @@ function fillDailyOvertimeSheet(ws,targetDate,members){
     setCellStr(ws,row,4,m.rank||'');             // E 직위
     setCellStr(ws,row,5,m.type||'정규');         // F 형태
 
-    // 부재 여부와 관계없이 I/J열(전일 출퇴근)은 채움
-    const todayAway=isAway(m.id,targetDate);
-    const isOffDate=isOffDay(targetDate);
+    // I/J열 = 전일(어제) 출퇴근, 기본값 08:30/17:30
+    const prevDate=new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()-1);
+    let clockIn='08:30', clockOut='17:30';
     
-    {
-      const dk=dateKey(targetDate);
-      let clockIn='', clockOut='';
-      let hasData=false;
-      
-      if(isOffDate){
-        // 주말/공휴일: weekendTimeMap에서 주말출근 데이터 확인
-        if(dk===dateKey(S.simTime)){
-          const mv=S.votes.find(v=>v.id===m.id);
-          if(mv?.weekendTimeMap&&mv.weekendTimeMap[dk]){
-            clockIn=mv.weekendTimeMap[dk].clockIn||'';
-            clockOut=mv.weekendTimeMap[dk].clockOut||'';
-            hasData=!!(clockIn&&clockOut);
-          }
-        }
-        if(!hasData){
-          const raw=localStorage.getItem('day_'+dk);
-          if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(r=>r.id===m.id||r.name===m.name);
-            if(rec?.weekendTimeMap&&rec.weekendTimeMap[dk]){
-              clockIn=rec.weekendTimeMap[dk].clockIn||'';
-              clockOut=rec.weekendTimeMap[dk].clockOut||'';
-              hasData=!!(clockIn&&clockOut);
+    // 전일 데이터 가져오기
+    const prevDk=dateKey(prevDate);
+    const todayDk=dateKey(S.simTime);
+    const prevPrevWorkday=getPrevWorkday(new Date(targetDate)); // targetDate 기준 전일 근무일
+    
+    if(dateKey(prevPrevWorkday)===dateKey(getPrevWorkday(S.simTime)) && prevDk!==todayDk){
+      // 전일 근무일이 오늘의 전일 근무일과 같으면 → S.votes에서
+      const mv=S.votes.find(v=>v.id===m.id);
+      if(mv?.clockIn)clockIn=mv.clockIn;
+      if(mv?.clockOut)clockOut=mv.clockOut;
+    } else if(prevDk===dateKey(getPrevWorkday(S.simTime))){
+      // targetDate의 전일이 오늘의 전일 근무일 → S.votes에서
+      const mv=S.votes.find(v=>v.id===m.id);
+      if(mv?.clockIn)clockIn=mv.clockIn;
+      if(mv?.clockOut)clockOut=mv.clockOut;
+    } else {
+      // 과거: 전일의 다음 근무일(투표일) 기록에서 출퇴근
+      const nextWd=new Date(prevDate.getFullYear(),prevDate.getMonth(),prevDate.getDate()+1);
+      while(isOffDay(nextWd)){nextWd.setDate(nextWd.getDate()+1);}
+      const voteDk=dateKey(nextWd);
+      const raw=localStorage.getItem('day_'+voteDk);
+      if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(r=>r.id===m.id||r.name===m.name);
+        if(rec?.clockIn)clockIn=rec.clockIn;
+        if(rec?.clockOut)clockOut=rec.clockOut;
+      }catch(e){}}
+    }
+    
+    // 주말출근 데이터가 있으면 덮어쓰기
+    if(isOffDay(prevDate)){
+      // 전일이 주말/공휴일이면 weekendTimeMap 확인
+      let wkCi='',wkCo='';
+      // S.votes에서
+      const mv2=S.votes.find(v=>v.id===m.id);
+      if(mv2?.weekendTimeMap&&mv2.weekendTimeMap[prevDk]){
+        wkCi=mv2.weekendTimeMap[prevDk].clockIn||'';
+        wkCo=mv2.weekendTimeMap[prevDk].clockOut||'';
+      }
+      // localStorage에서
+      if(!wkCi){
+        for(let fwd=0;fwd<=5;fwd++){
+          const chkDk=dateKey(new Date(prevDate.getFullYear(),prevDate.getMonth(),prevDate.getDate()+fwd));
+          const raw2=localStorage.getItem('day_'+chkDk);
+          if(raw2){try{const recs2=JSON.parse(raw2);const rec2=recs2.find(r=>r.id===m.id||r.name===m.name);
+            if(rec2?.weekendTimeMap&&rec2.weekendTimeMap[prevDk]){
+              wkCi=rec2.weekendTimeMap[prevDk].clockIn||'';
+              wkCo=rec2.weekendTimeMap[prevDk].clockOut||'';
+              if(wkCi)break;
             }
           }catch(e){}}
         }
-        if(!hasData){
-          for(let back=1;back<=5;back++){
-            const prevDk=dateKey(new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()-back));
-            const raw2=localStorage.getItem('day_'+prevDk);
-            if(raw2){try{const recs2=JSON.parse(raw2);const rec2=recs2.find(r=>r.id===m.id||r.name===m.name);
-              if(rec2?.weekendTimeMap&&rec2.weekendTimeMap[dk]){
-                clockIn=rec2.weekendTimeMap[dk].clockIn||'';
-                clockOut=rec2.weekendTimeMap[dk].clockOut||'';
-                hasData=!!(clockIn&&clockOut);
-                if(hasData)break;
-              }
-            }catch(e){}}
-          }
-        }
-      } else {
-        // 평일: 해당 날짜 시트의 I/J열 = 오늘 투표한 전일 출퇴근
-        clockIn='08:30'; clockOut='17:30';
-        if(dk===dateKey(S.simTime)){
-          const mv=S.votes.find(v=>v.id===m.id);
-          if(mv?.clockIn)clockIn=mv.clockIn;
-          if(mv?.clockOut)clockOut=mv.clockOut;
-        } else {
-          // 과거: 다음 근무일(투표일) 기록에서 출퇴근 가져오기
-          const nextWorkday=new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()+1);
-          while(isOffDay(nextWorkday)){nextWorkday.setDate(nextWorkday.getDate()+1);}
-          const voteDk=dateKey(nextWorkday);
-          const raw=localStorage.getItem('day_'+voteDk);
-          if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(r=>r.id===m.id||r.name===m.name);
-            if(rec?.clockIn)clockIn=rec.clockIn;
-            if(rec?.clockOut)clockOut=rec.clockOut;
-          }catch(e){}}
-        }
-        hasData=true;
       }
-      
-      if(hasData&&clockIn&&clockOut){
-        setCellTime(ws,row,6,clockOut);   // G 확정 퇴근
-        setCellTime(ws,row,8,clockIn);    // I 실제 출근
-        setCellTime(ws,row,9,clockOut);   // J 실제 퇴근
-        setCellTime(ws,row,14,clockOut);  // O 담당자 신청 퇴근
-        
-        // K열: 연장시간 직접 계산
-        const ot=calcOvertime(clockIn,clockOut);
-        setCellNum(ws,row,10,ot);
-      }
+      if(wkCi&&wkCo){clockIn=wkCi;clockOut=wkCo;}
     }
+    
+    setCellTime(ws,row,6,clockOut);   // G 확정 퇴근
+    setCellTime(ws,row,8,clockIn);    // I 실제 출근
+    setCellTime(ws,row,9,clockOut);   // J 실제 퇴근
+    setCellTime(ws,row,14,clockOut);  // O 담당자 신청 퇴근
+    
+    // K열: 연장시간 직접 계산
+    const ot=calcOvertime(clockIn,clockOut);
+    if(ot>0)setCellNum(ws,row,10,ot);
     
     // N열: 전일(어제) 업무내용
     setCellStr(ws,row,13,getPrevStatusTextForExport(m,targetDate));
@@ -3457,6 +3457,17 @@ function rModal(root){
     const btns=h('div',{style:{display:'flex',gap:'7px',marginTop:'4px'}});
     btns.append(h('button',{className:'btn',style:{flex:1,padding:'13px',background:'#f5f5f5',color:'#666',borderRadius:'11px'},onClick:()=>{S.modal=null;render();}},'취소'));
     btns.append(h('button',{className:'btn btn-brown',style:{flex:2,padding:'13px',borderRadius:'11px'},onClick:submitWeekend},'등록'));
+    box.append(btns);
+  }
+  if(S.modal==='todayReminder'){
+    box.append(h('div',{style:{textAlign:'center',marginBottom:'16px'}},
+      h('div',{style:{fontSize:'48px',marginBottom:'8px'}},'📌'),
+      h('h2',{style:{fontSize:'17px',fontWeight:900,marginBottom:'4px'}},'금일 근무 상태도 선택해주세요!'),
+      h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'16px',lineHeight:'1.6'}},'투표 완료! 👏\n\n"오늘" 탭에서 금일 출근 상태를\n선택하지 않으면 현황에 미선택으로 표시됩니다.')
+    ));
+    const btns=h('div',{style:{display:'flex',gap:'7px'}});
+    btns.append(h('button',{className:'btn',style:{flex:1,padding:'13px',background:'#f5f5f5',color:'#666',borderRadius:'11px',fontSize:'13px'},onClick:()=>{S.modal=null;render();}},'나중에'));
+    btns.append(h('button',{className:'btn btn-brown',style:{flex:2,padding:'13px',borderRadius:'11px',fontSize:'14px',fontWeight:800},onClick:()=>{S.modal=null;S.tab='today';render();}},'🏢 오늘 탭으로 이동'));
     box.append(btns);
   }
   bg.append(box);root.append(bg);
