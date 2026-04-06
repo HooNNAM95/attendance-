@@ -893,13 +893,12 @@ function getWeeklyDownloadLabel(baseDate){
   return (dates[0].getMonth()+1)+'/'+dates[0].getDate()+'~'+(dates[6].getMonth()+1)+'/'+dates[6].getDate();
 }
 function getNearbyWeekendOptions(baseDate){
-  const base=new Date(baseDate.getFullYear(),baseDate.getMonth(),baseDate.getDate());
+  // 해당 주(월~일)의 토/일/공휴일만 표시
+  const weekDates=getWeekDates(baseDate);
   const dates=[];
-  for(let i=-14;i<=14;i++){
-    const d=new Date(base);d.setDate(base.getDate()+i);
-    // 토/일 또는 공휴일
+  weekDates.forEach(d=>{
     if(d.getDay()===6||d.getDay()===0||isHoliday(d))dates.push(d);
-  }
+  });
   const uniq=[]; const seen=new Set();
   dates.forEach(d=>{const k=dateKey(d); if(!seen.has(k)){seen.add(k); uniq.push(d);}});
   return uniq;
@@ -1433,102 +1432,66 @@ function clearSheetRange(ws,sr,er,sc,ec){
     }
   }
 }
-function fillDailyOvertimeSheet(ws,targetDate,members){
+function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayClocks){
   const isOff=isOffDay(targetDate);
   setCell(ws,2,1,new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()),'d');
   setCellStr(ws,2,5,isOff?'휴무일':'평일');
 
-  // 모든 데이터행(R7~R40) 전체 열 비우기 (양식 기존 데이터 제거)
-  for(let row=6; row<=39; row++){
+  // 모든 데이터행 비우기
+  for(let row=6;row<=39;row++){
     for(let c=1;c<=18;c++){
       const addr=XLSX.utils.encode_cell({r:row,c});
-      if(ws[addr]){
-        delete ws[addr].v;delete ws[addr].w;delete ws[addr].f;
-        ws[addr].t='s';ws[addr].v='';
-      }
+      if(ws[addr]){delete ws[addr].v;delete ws[addr].w;delete ws[addr].f;ws[addr].t='s';ws[addr].v='';}
     }
   }
 
   members.forEach((m,i)=>{
     const row=6+i;
-    const todayRec=getExportRecord(m,targetDate);
+    setCellNum(ws,row,1,i+1);
+    setCellStr(ws,row,2,m.part||m.dept||'');
+    setCellStr(ws,row,3,m.name||'');
+    setCellStr(ws,row,4,m.rank||'');
+    setCellStr(ws,row,5,m.type||'정규');
 
-    setCellNum(ws,row,1,i+1);                    // B No
-    setCellStr(ws,row,2,m.part||m.dept||'');     // C 팀
-    setCellStr(ws,row,3,m.name||'');             // D 이름
-    setCellStr(ws,row,4,m.rank||'');             // E 직위
-    setCellStr(ws,row,5,m.type||'정규');         // F 형태
-
-    // I/J열 = 전일(어제) 출퇴근, 기본값 08:30/17:30
-    const prevDate=new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()-1);
+    // I/J열 규칙:
+    // - 첫 시트(토): 금요일 실제 투표 출퇴근 (lastWorkdayClocks에서)
+    // - 나머지(일/월): 기본값 08:30/17:30
     let clockIn='08:30', clockOut='17:30';
     
-    // 전일 데이터 가져오기
-    const prevDk=dateKey(prevDate);
-    const todayDk=dateKey(S.simTime);
-    const prevPrevWorkday=getPrevWorkday(new Date(targetDate)); // targetDate 기준 전일 근무일
-    
-    if(dateKey(prevPrevWorkday)===dateKey(getPrevWorkday(S.simTime)) && prevDk!==todayDk){
-      // 전일 근무일이 오늘의 전일 근무일과 같으면 → S.votes에서
-      const mv=S.votes.find(v=>v.id===m.id);
-      if(mv?.clockIn)clockIn=mv.clockIn;
-      if(mv?.clockOut)clockOut=mv.clockOut;
-    } else if(prevDk===dateKey(getPrevWorkday(S.simTime))){
-      // targetDate의 전일이 오늘의 전일 근무일 → S.votes에서
-      const mv=S.votes.find(v=>v.id===m.id);
-      if(mv?.clockIn)clockIn=mv.clockIn;
-      if(mv?.clockOut)clockOut=mv.clockOut;
-    } else {
-      // 과거: 전일의 다음 근무일(투표일) 기록에서 출퇴근
-      const nextWd=new Date(prevDate.getFullYear(),prevDate.getMonth(),prevDate.getDate()+1);
-      while(isOffDay(nextWd)){nextWd.setDate(nextWd.getDate()+1);}
-      const voteDk=dateKey(nextWd);
-      const raw=localStorage.getItem('day_'+voteDk);
-      if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(r=>r.id===m.id||r.name===m.name);
-        if(rec?.clockIn)clockIn=rec.clockIn;
-        if(rec?.clockOut)clockOut=rec.clockOut;
-      }catch(e){}}
+    if(isFirstSheet && lastWorkdayClocks){
+      const lc=lastWorkdayClocks[m.id];
+      if(lc){
+        clockIn=lc.clockIn||'08:30';
+        clockOut=lc.clockOut||'17:30';
+      }
     }
     
-    // 주말출근 데이터가 있으면 덮어쓰기
-    if(isOffDay(prevDate)){
-      // 전일이 주말/공휴일이면 weekendTimeMap 확인
-      let wkCi='',wkCo='';
-      // S.votes에서
-      const mv2=S.votes.find(v=>v.id===m.id);
-      if(mv2?.weekendTimeMap&&mv2.weekendTimeMap[prevDk]){
-        wkCi=mv2.weekendTimeMap[prevDk].clockIn||'';
-        wkCo=mv2.weekendTimeMap[prevDk].clockOut||'';
-      }
-      // localStorage에서
-      if(!wkCi){
-        for(let fwd=0;fwd<=5;fwd++){
-          const chkDk=dateKey(new Date(prevDate.getFullYear(),prevDate.getMonth(),prevDate.getDate()+fwd));
-          const raw2=localStorage.getItem('day_'+chkDk);
-          if(raw2){try{const recs2=JSON.parse(raw2);const rec2=recs2.find(r=>r.id===m.id||r.name===m.name);
-            if(rec2?.weekendTimeMap&&rec2.weekendTimeMap[prevDk]){
-              wkCi=rec2.weekendTimeMap[prevDk].clockIn||'';
-              wkCo=rec2.weekendTimeMap[prevDk].clockOut||'';
-              if(wkCi)break;
-            }
-          }catch(e){}}
-        }
-      }
-      if(wkCi&&wkCo){clockIn=wkCi;clockOut=wkCo;}
-    }
+    setCellTime(ws,row,6,clockOut);   // G
+    setCellTime(ws,row,8,clockIn);    // I
+    setCellTime(ws,row,9,clockOut);   // J
     
-    setCellTime(ws,row,6,clockOut);   // G 확정 퇴근
-    setCellTime(ws,row,8,clockIn);    // I 실제 출근
-    setCellTime(ws,row,9,clockOut);   // J 실제 퇴근
-    setCellTime(ws,row,14,clockOut);  // O 담당자 신청 퇴근
-    
-    // K열: 연장시간 직접 계산
+    // K열: calcOvertime 직접 계산, 0이면 0 넣기
     const ot=calcOvertime(clockIn,clockOut);
-    if(ot>0)setCellNum(ws,row,10,ot);
+    setCellNum(ws,row,10,ot);
     
-    // N열: 전일(어제) 업무내용
+    // L열: 수식 IFERROR(VLOOKUP(K행,기준!F:G,2,FALSE),"")
+    const lAddr=XLSX.utils.encode_cell({r:row,c:11});
+    if(!ws[lAddr])ws[lAddr]={};
+    ws[lAddr].t='s';ws[lAddr].v='';
+    ws[lAddr].f='IFERROR(VLOOKUP(K'+(row+1)+',기준!F:G,2,FALSE),"")';
+    
+    // O열: 오늘(마지막) 시트에만 금요일 실제 퇴근시간
+    if(!isFirstSheet && lastWorkdayClocks){
+      const lc=lastWorkdayClocks[m.id];
+      setCellTime(ws,row,14,lc?.clockOut||'17:30');
+    } else {
+      setCellTime(ws,row,14,clockOut);
+    }
+    
+    // N열: 전일 업무내용
     setCellStr(ws,row,13,getPrevStatusTextForExport(m,targetDate));
     // R열: 오늘 업무내용/근태
+    const todayRec=getExportRecord(m,targetDate);
     setCellStr(ws,row,17,getTodayStatusTextForExport(m,targetDate,todayRec));
   });
 
@@ -1579,6 +1542,17 @@ async function dlWeekly(officeFilter){
     // 오늘은 항상 마지막에 추가
     dateSheets.push(today);
 
+    // 마지막 출근일(금요일)의 실제 투표 출퇴근 시간 수집
+    const lastWorkdayClocks={};
+    const lastWd=getPrevWorkday(today);
+    offVotes.forEach(v=>{
+      let ci='08:30',co='17:30';
+      // S.votes에서 (오늘 투표한 전일 출퇴근)
+      if(v.clockIn)ci=v.clockIn;
+      if(v.clockOut)co=v.clockOut;
+      lastWorkdayClocks[v.id]={clockIn:ci,clockOut:co};
+    });
+
     const nextSheets={};
     const nextNames=[];
 
@@ -1591,9 +1565,10 @@ async function dlWeekly(officeFilter){
       const tplName=getTemplateName(dt);
       const tplWs=wb.Sheets[tplName];
       if(!tplWs)return;
-      // 딥카피로 각 날짜별 독립 시트 생성
       const ws=cloneSheetObj(tplWs);
-      fillDailyOvertimeSheet(ws,dt,offVotes);
+      const isFirst=(idx===0);
+      const isLast=(idx===dateSheets.length-1);
+      fillDailyOvertimeSheet(ws,dt,offVotes,isFirst,lastWorkdayClocks);
       const newName=(dt.getMonth()+1)+'-'+dt.getDate();
       nextSheets[newName]=ws;
       nextNames.push(newName);
@@ -3181,110 +3156,45 @@ async function dlHistoryWeekly(weekKey){
       nextNames.push('기준');
     }
     
-    // 날짜별 시트 생성 (월~일 7일)
+    // 마지막 출근일의 출퇴근 데이터 수집 (기록 탭)
+    const histLastWd=new Date(weekDates[0]);
+    // 주의 금요일 찾기
+    while(histLastWd.getDay()!==5&&histLastWd<=weekDates[6]){histLastWd.setDate(histLastWd.getDate()+1);}
+    const histClocks={};
+    const histFriDk=dateKey(histLastWd);
+    // 금요일 다음 근무일(=투표일)의 기록에서 출퇴근
+    const histNextWd=new Date(histLastWd);histNextWd.setDate(histNextWd.getDate()+1);
+    while(isOffDay(histNextWd)){histNextWd.setDate(histNextWd.getDate()+1);}
+    const histVoteDk=dateKey(histNextWd);
+    const histRaw=localStorage.getItem('day_'+histVoteDk);
+    if(histRaw){try{const recs=JSON.parse(histRaw);
+      members.forEach(m=>{
+        const rec=recs.find(r=>r.id===m.id||r.name===m.name);
+        histClocks[m.id]={clockIn:rec?.clockIn||'08:30',clockOut:rec?.clockOut||'17:30'};
+      });
+    }catch(e){}}
+    members.forEach(m=>{if(!histClocks[m.id])histClocks[m.id]={clockIn:'08:30',clockOut:'17:30'};});
+
+    // 날짜별 시트 생성 (토/일/월 등)
+    // 기록탭: 해당 주의 토~오늘(또는 해당 주 마지막) 시트만
+    const histDateSheets=[];
     weekDates.forEach(dt=>{
+      if(dt.getDay()===6||dt.getDay()===0||dateKey(dt)===dateKey(new Date(weekKey))){
+        // 토/일/주 시작(월) 포함
+      }
+    });
+    // 간단하게: 토/일/월 시트 생성
+    const satDate=weekDates[5]; // 토
+    const sunDate=weekDates[6]; // 일
+    const monDate=weekDates[0]; // 월
+    [satDate,sunDate,monDate].forEach((dt,idx)=>{
+      if(!dt)return;
       const tplName=getTemplateName(dt);
       const tplWs=wb.Sheets[tplName];
       if(!tplWs)return;
-      
       const ws=cloneSheetObj(tplWs);
-      
-      // 양식 기존 데이터 행 전체 비우기
-      for(let row=6;row<=39;row++){
-        for(let c=1;c<=18;c++){
-          const addr=XLSX.utils.encode_cell({r:row,c});
-          if(ws[addr]){delete ws[addr].v;delete ws[addr].w;delete ws[addr].f;ws[addr].t='s';ws[addr].v='';}
-        }
-      }
-      
-      // B3 = 날짜
-      setCellStr(ws,2,1,dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'));
-      
-      // 각 직원 데이터
-      members.forEach((m,i)=>{
-        const row=6+i;
-        setCellNum(ws,row,1,i+1);
-        setCellStr(ws,row,2,m.part||m.dept||'');
-        setCellStr(ws,row,3,m.name||'');
-        setCellStr(ws,row,4,m.rank||'');
-        setCellStr(ws,row,5,m.type||'정규');
-        
-        // 부재 체크
-        if(isAway(m.id,dt)){
-          const ai=getAway(m.id,dt);
-          setCellStr(ws,row,13,ai?.type||'부재');
-          setCellStr(ws,row,17,ai?.type||'부재');
-          return;
-        }
-        
-        const dk=dateKey(dt);
-        const isOffDate=isOffDay(dt);
-        let clockIn='',clockOut='';
-        let hasData=false;
-        
-        if(isOffDate){
-          // 주말/공휴일: weekendTimeMap 확인
-          const dayRec=localStorage.getItem('day_'+dk);
-          if(dayRec){try{const recs=JSON.parse(dayRec);const rec=recs.find(r=>r.id===m.id||r.name===m.name);
-            if(rec?.weekendTimeMap&&rec.weekendTimeMap[dk]){
-              clockIn=rec.weekendTimeMap[dk].clockIn||'';
-              clockOut=rec.weekendTimeMap[dk].clockOut||'';
-              hasData=!!(clockIn&&clockOut);
-            }
-          }catch(e){}}
-          // 전일 투표의 weekendTimeMap도 확인
-          if(!hasData){
-            for(let back=1;back<=5;back++){
-              const prevDk=dateKey(new Date(dt.getFullYear(),dt.getMonth(),dt.getDate()-back));
-              const raw2=localStorage.getItem('day_'+prevDk);
-              if(raw2){try{const recs2=JSON.parse(raw2);const rec2=recs2.find(r=>r.id===m.id||r.name===m.name);
-                if(rec2?.weekendTimeMap&&rec2.weekendTimeMap[dk]){
-                  clockIn=rec2.weekendTimeMap[dk].clockIn||'';clockOut=rec2.weekendTimeMap[dk].clockOut||'';
-                  hasData=!!(clockIn&&clockOut);if(hasData)break;
-                }
-              }catch(e){}}
-            }
-          }
-        } else {
-          // 평일
-          clockIn='08:30';clockOut='17:30';
-          const dayRec=localStorage.getItem('day_'+dk);
-          if(dayRec){try{const recs=JSON.parse(dayRec);const rec=recs.find(r=>r.id===m.id||r.name===m.name);
-            if(rec?.clockIn)clockIn=rec.clockIn;
-            if(rec?.clockOut)clockOut=rec.clockOut;
-          }catch(e){}}
-          hasData=true;
-        }
-        
-        let dayStatus='출근';
-        const dayRec2=localStorage.getItem('day_'+dk);
-        if(dayRec2){try{const recs=JSON.parse(dayRec2);const rec=recs.find(r=>r.id===m.id||r.name===m.name);
-          if(rec?.todayStatus)dayStatus=rec.todayStatus;
-          else if(rec?.dayStatus)dayStatus=rec.dayStatus;
-        }catch(e){}}
-        
-        if(hasData&&clockIn&&clockOut){
-          setCellTime(ws,row,6,clockOut);   // G 확정 퇴근
-          setCellTime(ws,row,8,clockIn);    // I 실제 출근
-          setCellTime(ws,row,9,clockOut);   // J 실제 퇴근
-          setCellTime(ws,row,14,clockOut);  // O 담당자 신청 퇴근
-          // K열: 연장시간 직접 계산
-          const ot=calcOvertime(clockIn,clockOut);
-          setCellNum(ws,row,10,ot);
-        }
-        
-        // N열: 전일 업무내용
-        const prev=new Date(dt.getFullYear(),dt.getMonth(),dt.getDate()-1);
-        if(isAway(m.id,prev)){const ai=getAway(m.id,prev);setCellStr(ws,row,13,ai?.type||'부재');}
-        else if(isWeekend(prev)||isHoliday(prev)){setCellStr(ws,row,13,'휴무');}
-        else{setCellStr(ws,row,13,dayStatus==='출근'?'신규 모델 관련 업무 진행':dayStatus);}
-        
-        // R열: 오늘 업무내용
-        if(isAway(m.id,dt)){const ai=getAway(m.id,dt);setCellStr(ws,row,17,ai?.type||'부재');}
-        else if(isWeekend(dt)||isHoliday(dt)){setCellStr(ws,row,17,'휴무');}
-        else{setCellStr(ws,row,17,dayStatus==='출근'?'신규 모델 관련 업무 진행':dayStatus);}
-      });
-      
+      const isFirst=(idx===0);
+      fillDailyOvertimeSheet(ws,dt,members,isFirst,histClocks);
       ws['!ref']='A1:V'+(6+members.length);
       const sheetName=(dt.getMonth()+1)+'-'+dt.getDate();
       nextSheets[sheetName]=ws;
