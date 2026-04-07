@@ -352,7 +352,7 @@ function saveDayRecord(){
   
   // Firebase에 각 사용자 투표 저장
   S.votes.forEach(v=>{
-    if(v.dayStatus||v.clockIn||v.clockOut){
+    if(v.dayStatus||v.clockIn||v.clockOut||v.todayStatus){
       const data={id:v.id,name:v.name,dept:v.dept,part:v.part||v.dept,rank:v.rank||'',type:v.type||'정규',office:v.office,
         dayStatus:v.dayStatus||null,todayStatus:v.todayStatus||null,todayStatusManual:v.todayStatusManual||false,clockIn:v.clockIn||null,clockOut:v.clockOut||null,
         reason:v.reason||'',location:v.location||'',overtime:calcOvertime(v.clockIn,v.clockOut),
@@ -585,11 +585,14 @@ function reloadVotes(){
         const newDS=fbRec.dayStatus||null,newCI=fbRec.clockIn||null,newCO=fbRec.clockOut||null;
         const newTSManual=fbRec.todayStatusManual||false;
         const newTS=newTSManual?(fbRec.todayStatus||null):null;
+        // Firebase에 데이터가 없으면(null) 로컬 confirmed 데이터 유지
+        if(!newDS&&!newCI&&v.confirmed)return v;
+        // Firebase 데이터가 있으면(다른 사람이 투표) 업데이트
         if(newDS!==v.dayStatus||newCI!==v.clockIn||newCO!==v.clockOut||newTS!==v.todayStatus){
           changed=true;
-          return{...v,dayStatus:newDS,clockIn:newCI,clockOut:newCO,todayStatus:newTS,todayStatusManual:fbRec.todayStatusManual||false,
-            reason:fbRec.reason||'',location:fbRec.location||'',
-            weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},confirmed:!!(newDS||newCI)};
+          return{...v,dayStatus:newDS||v.dayStatus,clockIn:newCI||v.clockIn,clockOut:newCO||v.clockOut,todayStatus:newTS||v.todayStatus,todayStatusManual:newTSManual||v.todayStatusManual,
+            reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
+            weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},confirmed:v.confirmed||!!(newDS||newCI)};
         }
       }
       return v;
@@ -3221,55 +3224,55 @@ async function dlHistoryWeekly(weekKey){
     const nextSheets={};
     const nextNames=[];
     
-    // 기준 시트 유지
     if(wb.Sheets['기준']){
       nextSheets['기준']=wb.Sheets['기준'];
       nextNames.push('기준');
     }
-    
-    // 마지막 출근일의 출퇴근 데이터 수집 (기록 탭)
-    const histLastWd=new Date(weekDates[0]);
-    // 주의 금요일 찾기
-    while(histLastWd.getDay()!==5&&histLastWd<=weekDates[6]){histLastWd.setDate(histLastWd.getDate()+1);}
-    const histClocks={};
-    const histFriDk=dateKey(histLastWd);
-    // 금요일 다음 근무일(=투표일)의 기록에서 출퇴근
-    const histNextWd=new Date(histLastWd);histNextWd.setDate(histNextWd.getDate()+1);
-    while(isOffDay(histNextWd)){histNextWd.setDate(histNextWd.getDate()+1);}
-    const histVoteDk=dateKey(histNextWd);
-    const histRaw=localStorage.getItem('day_'+histVoteDk);
-    if(histRaw){try{const recs=JSON.parse(histRaw);
-      members.forEach(m=>{
-        const rec=recs.find(r=>r.id===m.id||r.name===m.name);
-        histClocks[m.id]={clockIn:rec?.clockIn||'08:30',clockOut:rec?.clockOut||'17:30'};
-      });
-    }catch(e){}}
-    members.forEach(m=>{if(!histClocks[m.id])histClocks[m.id]={clockIn:'08:30',clockOut:'17:30'};});
 
-    // 날짜별 시트 생성 (토/일/월 등)
-    // 기록탭: 해당 주의 토~오늘(또는 해당 주 마지막) 시트만
-    const histDateSheets=[];
-    weekDates.forEach(dt=>{
-      if(dt.getDay()===6||dt.getDay()===0||dateKey(dt)===dateKey(new Date(weekKey))){
-        // 토/일/주 시작(월) 포함
+    // 각 날짜별 전일 출퇴근 데이터 수집 헬퍼
+    function getPrevDayClocks(targetDate){
+      const prev=new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()-1);
+      const prevDk=dateKey(prev);
+      const clocks={};
+      // 전일의 다음 근무일(=투표일) 기록에서 가져오기
+      const nextWd=new Date(prev);nextWd.setDate(nextWd.getDate()+1);
+      while(isOffDay(nextWd)){nextWd.setDate(nextWd.getDate()+1);}
+      const voteDk=dateKey(nextWd);
+      const raw=localStorage.getItem('day_'+voteDk);
+      if(raw){try{const recs=JSON.parse(raw);
+        members.forEach(m=>{
+          const rec=recs.find(r=>r.id===m.id||r.name===m.name);
+          if(rec) clocks[m.id]={clockIn:rec.clockIn||'08:30',clockOut:rec.clockOut||'17:30'};
+        });
+      }catch(e){}}
+      // 전일 자체 기록에서도 시도
+      if(Object.keys(clocks).length<members.length){
+        const raw2=localStorage.getItem('day_'+prevDk);
+        if(raw2){try{const recs2=JSON.parse(raw2);
+          members.forEach(m=>{
+            if(!clocks[m.id]){
+              const rec2=recs2.find(r=>r.id===m.id||r.name===m.name);
+              if(rec2) clocks[m.id]={clockIn:rec2.clockIn||'08:30',clockOut:rec2.clockOut||'17:30'};
+            }
+          });
+        }catch(e){}}
       }
-    });
-    // 간단하게: 토/일/월 시트 생성
-    const satDate=weekDates[5]; // 토
-    const sunDate=weekDates[6]; // 일
-    const monDate=weekDates[0]; // 월
-    const histDates=[satDate,sunDate,monDate];
-    histDates.forEach((dt,idx)=>{
-      if(!dt)return;
+      members.forEach(m=>{if(!clocks[m.id])clocks[m.id]={clockIn:'08:30',clockOut:'17:30'};});
+      return clocks;
+    }
+
+    // 월~일 7일 전체 시트 생성
+    weekDates.forEach((dt,idx)=>{
       let tplName=getTemplateName(dt);
       let tplWs=wb.Sheets[tplName];
       if(!tplWs && tplName==='일요일'){tplName='토요일';tplWs=wb.Sheets[tplName];}
       if(!tplWs && tplName==='공휴일'){tplName='토요일';tplWs=wb.Sheets[tplName];}
       if(!tplWs)return;
       const ws=cloneSheetObj(tplWs);
-      const isFirst=(idx===0);
-      const prevSheetDate=(idx>0)?histDates[idx-1]:null;
-      fillDailyOvertimeSheet(ws,dt,members,isFirst,histClocks,prevSheetDate);
+      const prevClocks=getPrevDayClocks(dt);
+      const isFirst=true; // 각 시트마다 전일 데이터를 직접 넣으므로 항상 isFirst처럼 동작
+      const prevSheetDate=new Date(dt.getFullYear(),dt.getMonth(),dt.getDate()-1);
+      fillDailyOvertimeSheet(ws,dt,members,isFirst,prevClocks,null);
       ws['!ref']='A1:V'+(6+members.length);
       const sheetName=(dt.getMonth()+1)+'-'+dt.getDate();
       nextSheets[sheetName]=ws;
@@ -3279,6 +3282,7 @@ async function dlHistoryWeekly(weekKey){
     // 주 연장근무 현황 시트
     const weeklyWs=wb.Sheets['주 연장근무 현황'];
     if(weeklyWs){
+      clearSheetRange(weeklyWs,3,40,1,11);
       setCellStr(weeklyWs,1,1,'연장근무 합계 12시간 이내로 ('+getWeekLabel(d0)+')');
       weekDates.forEach((wd,i)=>{
         let label=dayLabels[i];
@@ -3286,6 +3290,7 @@ async function dlHistoryWeekly(weekKey){
         else if(isWeekend(wd))label+=' [휴무]';
         setCellStr(weeklyWs,2,3+i,label);
       });
+      const weeklyStatusTextSet=new Set(['해외출장','국내출장','연차','오전반차','오후반차']);
       let row=3;
       members.forEach((v,mi)=>{
         setCellStr(weeklyWs,row,1,'개발팀');
@@ -3293,27 +3298,35 @@ async function dlHistoryWeekly(weekKey){
         let weekTotal=0;
         weekDates.forEach((wd,di)=>{
           const dk=dateKey(wd);
-          if(isAway(v.id,wd)){const ai=getAway(v.id,wd);setCellStr(weeklyWs,row,3+di,ai?.type||'부재');}
-          else if(isOffDay(wd)){}
-          else{
-            // 다음 근무일(투표일) 기록에서 출퇴근 가져오기
-            const nextWorkday=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate()+1);
-            while(isOffDay(nextWorkday)){nextWorkday.setDate(nextWorkday.getDate()+1);}
-            const voteDk=dateKey(nextWorkday);
-            let clockIn=null,clockOut=null,ds=null;
-            const raw=localStorage.getItem('day_'+voteDk);
-            if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(r=>r.id===v.id||r.name===v.name);
-              if(rec){clockIn=rec.clockIn;clockOut=rec.clockOut;ds=rec.todayStatus||rec.dayStatus;}
-            }catch(e){}}
-            if(!clockIn&&!ds){
-              const raw2=localStorage.getItem('day_'+dk);
-              if(raw2){try{const recs2=JSON.parse(raw2);const rec2=recs2.find(r=>r.id===v.id||r.name===v.name);
-                if(rec2){clockIn=rec2.clockIn;clockOut=rec2.clockOut;ds=rec2.todayStatus||rec2.dayStatus;}
-              }catch(e){}}
+          const col=3+di;
+          if(isAway(v.id,wd)){const ai=getAway(v.id,wd);if(ai?.type)setCellStr(weeklyWs,row,col,ai.type);return;}
+          if(isOffDay(wd)){
+            const wkEntry=getWeekendWorkForDate(v,wd);
+            if(wkEntry){
+              const hrs=Math.round(Number(wkEntry.hours||calcOvertime(wkEntry.clockIn,wkEntry.clockOut)||0)*2)/2;
+              if(hrs>0){setCellNum(weeklyWs,row,col,hrs);weekTotal+=hrs;}
             }
-            if(ds&&ds!=='출근'){setCellStr(weeklyWs,row,3+di,ds);}
-            else{const ot=calcOvertime(clockIn||'08:30',clockOut||'17:30');setCellNum(weeklyWs,row,3+di,ot);weekTotal+=ot;}
+            return;
           }
+          // 평일: 다음 근무일(투표일) 기록에서 출퇴근 가져오기
+          const nextWorkday=new Date(wd.getFullYear(),wd.getMonth(),wd.getDate()+1);
+          while(isOffDay(nextWorkday)){nextWorkday.setDate(nextWorkday.getDate()+1);}
+          const voteDk=dateKey(nextWorkday);
+          let clockIn=null,clockOut=null,ds=null;
+          const raw=localStorage.getItem('day_'+voteDk);
+          if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(r=>r.id===v.id||r.name===v.name);
+            if(rec){clockIn=rec.clockIn;clockOut=rec.clockOut;ds=rec.todayStatus||rec.dayStatus;}
+          }catch(e){}}
+          if(!clockIn&&!ds){
+            const raw2=localStorage.getItem('day_'+dk);
+            if(raw2){try{const recs2=JSON.parse(raw2);const rec2=recs2.find(r=>r.id===v.id||r.name===v.name);
+              if(rec2){clockIn=rec2.clockIn;clockOut=rec2.clockOut;ds=rec2.todayStatus||rec2.dayStatus;}
+            }catch(e){}}
+          }
+          if(ds&&weeklyStatusTextSet.has(ds)){setCellStr(weeklyWs,row,col,ds);return;}
+          const ot=calcOvertime(clockIn||'08:30',clockOut||'17:30');
+          if(ot>0){setCellNum(weeklyWs,row,col,ot);weekTotal+=ot;}
+          else if(ds==='출근'||clockIn){setCellStr(weeklyWs,row,col,'-');}
         });
         setCellNum(weeklyWs,row,10,weekTotal);
         if(weekTotal>12)setCellStr(weeklyWs,row,11,'※초과');
@@ -3321,7 +3334,6 @@ async function dlHistoryWeekly(weekKey){
       });
       nextSheets['주 연장근무 현황']=weeklyWs;
       nextNames.push('주 연장근무 현황');
-      // 주간현황 서식 적용 (row는 이 블록 안에서만 유효)
       applyWeeklySummaryStyle(weeklyWs,row-1);
     }
     
@@ -3332,20 +3344,21 @@ async function dlHistoryWeekly(weekKey){
       applyDailyOTStyle(s,6+members.length-1);
     });
 
-    // 워크북 재구성
     wb.Sheets=nextSheets;
     wb.SheetNames=nextNames;
     if(wb.Workbook&&Array.isArray(wb.Workbook.Sheets)){
       wb.Workbook.Sheets=nextNames.map(n=>({name:n,Hidden:(n==='기준'?1:0)}));
     }
     
-    const dateRange=weekDates[0].getMonth()+1+'.'+weekDates[0].getDate()+'~'+weekDates[6].getMonth()+1+'.'+weekDates[6].getDate();
-    XLSX.writeFile(wb,'연장근무_'+dateRange+'.xlsx',{bookSST:true,bookType:'xlsx',cellStyles:true});
+    const wkLabel=(weekDates[0].getMonth()+1)+'.'+weekDates[0].getDate()+'~'+(weekDates[6].getMonth()+1)+'.'+weekDates[6].getDate();
+    const fname='연장근무_'+wkLabel+'.xlsx';
+    XLSX.writeFile(wb,fname,{bookSST:true,bookType:'xlsx',cellStyles:true});
   }catch(e){
     console.error(e);
     alert('양식 파일을 불러올 수 없습니다.\n에러: '+e.message);
   }
 }
+
 
 // ── MODAL ──
 function rModal(root){
