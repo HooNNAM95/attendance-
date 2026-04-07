@@ -1432,10 +1432,72 @@ function clearSheetRange(ws,sr,er,sc,ec){
     }
   }
 }
-function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayClocks){
+
+// ═══ 주말출근 데이터 조회 헬퍼 ═══
+function getWeekendWorkForDate(member,date){
+  const dk=dateKey(date);
+  // 현재 투표 데이터에서 확인
+  const cur=(S.votes||[]).find(v=>v.id===member.id);
+  if(cur?.weekendTimeMap&&cur.weekendTimeMap[dk]){
+    const item=cur.weekendTimeMap[dk];
+    if(item.clockIn&&item.clockOut) return item;
+  }
+  if(cur?.weekendHoursMap&&cur.weekendHoursMap[dk]&&Number(cur.weekendHoursMap[dk])>0){
+    return {clockIn:'08:30',clockOut:'09:30',hours:Number(cur.weekendHoursMap[dk])};
+  }
+  // localStorage 과거 기록에서 확인
+  for(let fwd=0;fwd<=5;fwd++){
+    const chkDate=new Date(date.getFullYear(),date.getMonth(),date.getDate()+fwd);
+    const chkDk=dateKey(chkDate);
+    const raw=localStorage.getItem('day_'+chkDk);
+    if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(rr=>rr.id===member.id||rr.name===member.name);
+      if(rec?.weekendTimeMap&&rec.weekendTimeMap[dk]){
+        const item=rec.weekendTimeMap[dk];
+        if(item.clockIn&&item.clockOut) return item;
+      }
+      if(rec?.weekendHoursMap&&rec.weekendHoursMap[dk]&&Number(rec.weekendHoursMap[dk])>0){
+        return {clockIn:'08:30',clockOut:'09:30',hours:Number(rec.weekendHoursMap[dk])};
+      }
+    }catch(e){}}
+  }
+  return null;
+}
+function hasWeekendWorkOnDate(member,date){
+  return !!getWeekendWorkForDate(member,date);
+}
+function getPrevStatusTextForExport_v2(member,targetDate){
+  const prev=new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()-1);
+  if(isAway(member.id,prev)){const ai=getAway(member.id,prev);return ai?.type||'부재';}
+  if(isOffDay(prev)){
+    // 주말/공휴일인 전일: 주말출근했으면 '신규 모델 관련 업무 진행', 아니면 '휴무'
+    return hasWeekendWorkOnDate(member,prev)?'신규 모델 관련 업무 진행':'휴무';
+  }
+  // 평일
+  const rec=getExportRecord(member,prev);
+  const st=rec?.todayStatus||rec?.dayStatus||'';
+  if(st&&st!=='출근') return st;
+  return '신규 모델 관련 업무 진행';
+}
+function getTodayStatusTextForExport_v2(member,targetDate){
+  if(isAway(member.id,targetDate)){const ai=getAway(member.id,targetDate);return ai?.type||'부재';}
+  if(isOffDay(targetDate)){
+    return hasWeekendWorkOnDate(member,targetDate)?'신규 모델 관련 업무 진행':'휴무';
+  }
+  const rec=getExportRecord(member,targetDate);
+  const st=rec?.todayStatus||rec?.dayStatus||'';
+  if(st&&st!=='출근') return st;
+  return '신규 모델 관련 업무 진행';
+}
+
+function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayClocks,prevSheetDate){
   const isOff=isOffDay(targetDate);
   setCell(ws,2,1,new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()),'d');
   setCellStr(ws,2,5,isOff?'휴무일':'평일');
+
+  // 전일 날짜 (I/J/K 기준): prevSheetDate가 있으면 그 날짜, 없으면 targetDate-1
+  const prevDate=prevSheetDate||new Date(targetDate.getFullYear(),targetDate.getMonth(),targetDate.getDate()-1);
+  const prevDk=dateKey(prevDate);
+  const prevIsOff=isOffDay(prevDate);
 
   // 모든 데이터행 비우기
   for(let row=6;row<=39;row++){
@@ -1455,7 +1517,7 @@ function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayCl
 
     // I/J열 규칙:
     // - 첫 시트(토): 금요일 실제 투표 출퇴근 (lastWorkdayClocks에서)
-    // - 나머지(일/월): 기본값 08:30/17:30
+    // - 나머지(일/월): 기본값 08:30/17:30, 단 전일이 주말/공휴일이고 주말출근이면 주말출근 시간 사용
     let clockIn='08:30', clockOut='17:30';
     
     if(isFirstSheet && lastWorkdayClocks){
@@ -1463,6 +1525,13 @@ function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayCl
       if(lc){
         clockIn=lc.clockIn||'08:30';
         clockOut=lc.clockOut||'17:30';
+      }
+    } else if(!isFirstSheet && prevIsOff){
+      // 전일이 주말/공휴일: 해당 멤버의 주말출근 데이터 확인
+      const wkEntry=getWeekendWorkForDate(m,prevDate);
+      if(wkEntry){
+        clockIn=wkEntry.clockIn||'08:30';
+        clockOut=wkEntry.clockOut||'17:30';
       }
     }
     
@@ -1480,7 +1549,7 @@ function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayCl
     ws[lAddr].t='s';ws[lAddr].v='';
     ws[lAddr].f='IFERROR(VLOOKUP(K'+(row+1)+',기준!F:G,2,FALSE),"")';
     
-    // O열: 오늘(마지막) 시트에만 금요일 실제 퇴근시간
+    // O열: 금요일 실제 퇴근시간 (모든 시트에서 동일)
     if(!isFirstSheet && lastWorkdayClocks){
       const lc=lastWorkdayClocks[m.id];
       setCellTime(ws,row,14,lc?.clockOut||'17:30');
@@ -1488,11 +1557,10 @@ function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayCl
       setCellTime(ws,row,14,clockOut);
     }
     
-    // N열: 전일 업무내용
-    setCellStr(ws,row,13,getPrevStatusTextForExport(m,targetDate));
-    // R열: 오늘 업무내용/근태
-    const todayRec=getExportRecord(m,targetDate);
-    setCellStr(ws,row,17,getTodayStatusTextForExport(m,targetDate,todayRec));
+    // N열: 전일 업무내용 (주말출근 반영)
+    setCellStr(ws,row,13,getPrevStatusTextForExport_v2(m,targetDate));
+    // R열: 당일 업무내용/근태 (주말출근 반영)
+    setCellStr(ws,row,17,getTodayStatusTextForExport_v2(m,targetDate));
   });
 
   const lastRow=6+members.length;
@@ -1562,13 +1630,16 @@ async function dlWeekly(officeFilter){
     }
 
     dateSheets.forEach((dt,idx)=>{
-      const tplName=getTemplateName(dt);
-      const tplWs=wb.Sheets[tplName];
+      let tplName=getTemplateName(dt);
+      let tplWs=wb.Sheets[tplName];
+      if(!tplWs && tplName==='일요일'){tplName='토요일';tplWs=wb.Sheets[tplName];}
+      if(!tplWs && tplName==='공휴일'){tplName='토요일';tplWs=wb.Sheets[tplName];}
       if(!tplWs)return;
       const ws=cloneSheetObj(tplWs);
       const isFirst=(idx===0);
       const isLast=(idx===dateSheets.length-1);
-      fillDailyOvertimeSheet(ws,dt,offVotes,isFirst,lastWorkdayClocks);
+      const prevSheetDate=(idx>0)?dateSheets[idx-1]:null;
+      fillDailyOvertimeSheet(ws,dt,offVotes,isFirst,lastWorkdayClocks,prevSheetDate);
       const newName=(dt.getMonth()+1)+'-'+dt.getDate();
       nextSheets[newName]=ws;
       nextNames.push(newName);
@@ -3187,14 +3258,18 @@ async function dlHistoryWeekly(weekKey){
     const satDate=weekDates[5]; // 토
     const sunDate=weekDates[6]; // 일
     const monDate=weekDates[0]; // 월
-    [satDate,sunDate,monDate].forEach((dt,idx)=>{
+    const histDates=[satDate,sunDate,monDate];
+    histDates.forEach((dt,idx)=>{
       if(!dt)return;
-      const tplName=getTemplateName(dt);
-      const tplWs=wb.Sheets[tplName];
+      let tplName=getTemplateName(dt);
+      let tplWs=wb.Sheets[tplName];
+      if(!tplWs && tplName==='일요일'){tplName='토요일';tplWs=wb.Sheets[tplName];}
+      if(!tplWs && tplName==='공휴일'){tplName='토요일';tplWs=wb.Sheets[tplName];}
       if(!tplWs)return;
       const ws=cloneSheetObj(tplWs);
       const isFirst=(idx===0);
-      fillDailyOvertimeSheet(ws,dt,members,isFirst,histClocks);
+      const prevSheetDate=(idx>0)?histDates[idx-1]:null;
+      fillDailyOvertimeSheet(ws,dt,members,isFirst,histClocks,prevSheetDate);
       ws['!ref']='A1:V'+(6+members.length);
       const sheetName=(dt.getMonth()+1)+'-'+dt.getDate();
       nextSheets[sheetName]=ws;
