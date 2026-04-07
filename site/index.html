@@ -350,16 +350,17 @@ function saveDayRecord(){
   const dayKey=getDayKey(S.simTime);
   const weekKey=getWeekKey(S.simTime);
   
-  // Firebase에 각 사용자 투표 저장
+  // Firebase에 저장 — 자기 데이터 또는 관리자가 변경한 데이터만
+  // (다른 사람의 todayStatus를 null로 덮어쓰는 문제 방지)
   S.votes.forEach(v=>{
     if(v.dayStatus||v.clockIn||v.clockOut||v.todayStatus){
       const data={id:v.id,name:v.name,dept:v.dept,part:v.part||v.dept,rank:v.rank||'',type:v.type||'정규',office:v.office,
         dayStatus:v.dayStatus||null,todayStatus:v.todayStatus||null,todayStatusManual:v.todayStatusManual||false,clockIn:v.clockIn||null,clockOut:v.clockOut||null,
         reason:v.reason||'',location:v.location||'',overtime:calcOvertime(v.clockIn,v.clockOut),
         weekendDates:v.weekendDates||[],weekendHoursMap:v.weekendHoursMap||{},weekendTimeMap:v.weekendTimeMap||{},junior:v.junior||false};
-      fbSaveVote(v.id,dayKey,data);
+      // update로 변경: 기존 Firebase 데이터 중 여기서 안 보내는 필드는 보존
+      db.ref('votes/'+dayKey+'/'+v.id).update(data);
     }
-    // todayStatus는 votes/ 경로에 이미 포함됨
   });
   
   // 주간 인덱스도 Firebase에 저장
@@ -554,10 +555,20 @@ function reloadVotes(){
     S.votes=S.votes.map(v=>{
       const fbRec=fbRecords.find(r=>r.id===v.id);
       if(fbRec&&!v.confirmed){
+        const fbTS=(fbRec.todayStatusManual)?(fbRec.todayStatus||v.todayStatus):v.todayStatus;
         changed=true;
         return{...v,dayStatus:fbRec.dayStatus||v.dayStatus,clockIn:fbRec.clockIn||v.clockIn,clockOut:fbRec.clockOut||v.clockOut,
-          todayStatus:(fbRec.todayStatusManual)?(fbRec.todayStatus||v.todayStatus):v.todayStatus,todayStatusManual:fbRec.todayStatusManual||v.todayStatusManual||false,weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
+          todayStatus:fbTS,todayStatusManual:fbRec.todayStatusManual||v.todayStatusManual||false,weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
           confirmed:!!(fbRec.dayStatus||fbRec.clockIn)};
+      }
+      // confirmed 상태여도 Firebase에 todayStatus가 있으면 병합
+      if(fbRec&&v.confirmed){
+        const fbTS=(fbRec.todayStatusManual)?(fbRec.todayStatus||null):null;
+        const mergedTS=fbTS||v.todayStatus;
+        if(mergedTS!==v.todayStatus){
+          changed=true;
+          return{...v,todayStatus:mergedTS,todayStatusManual:fbRec.todayStatusManual||v.todayStatusManual};
+        }
       }
       return v;
     });
@@ -585,12 +596,17 @@ function reloadVotes(){
         const newDS=fbRec.dayStatus||null,newCI=fbRec.clockIn||null,newCO=fbRec.clockOut||null;
         const newTSManual=fbRec.todayStatusManual||false;
         const newTS=newTSManual?(fbRec.todayStatus||null):null;
-        // Firebase에 데이터가 없으면(null) 로컬 confirmed 데이터 유지
+        // 로컬에 confirmed 데이터 있는데 Firebase가 비어있으면 → 로컬 유지
         if(!newDS&&!newCI&&v.confirmed)return v;
-        // Firebase 데이터가 있으면(다른 사람이 투표) 업데이트
-        if(newDS!==v.dayStatus||newCI!==v.clockIn||newCO!==v.clockOut||newTS!==v.todayStatus){
+        // todayStatus: Firebase에 없으면 로컬 값 유지
+        const mergedTS=(newTS||v.todayStatus);
+        const mergedTSManual=(newTSManual||v.todayStatusManual);
+        const mergedDS=newDS||v.dayStatus;
+        const mergedCI=newCI||v.clockIn;
+        const mergedCO=newCO||v.clockOut;
+        if(mergedDS!==v.dayStatus||mergedCI!==v.clockIn||mergedCO!==v.clockOut||mergedTS!==v.todayStatus){
           changed=true;
-          return{...v,dayStatus:newDS||v.dayStatus,clockIn:newCI||v.clockIn,clockOut:newCO||v.clockOut,todayStatus:newTS||v.todayStatus,todayStatusManual:newTSManual||v.todayStatusManual,
+          return{...v,dayStatus:mergedDS,clockIn:mergedCI,clockOut:mergedCO,todayStatus:mergedTS,todayStatusManual:mergedTSManual,
             reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
             weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},confirmed:v.confirmed||!!(newDS||newCI)};
         }
