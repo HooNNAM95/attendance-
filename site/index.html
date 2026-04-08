@@ -532,9 +532,8 @@ function reloadVotes(){
     const savedRec=saved?saved.find(r=>r.id===m.id):null;
     if(existing&&existing.confirmed)return{...existing,...m};
     if(savedRec){
-      const tsManual=savedRec.todayStatusManual||false;
       return{...m,dayStatus:savedRec.dayStatus||null,clockIn:savedRec.clockIn||null,clockOut:savedRec.clockOut||null,
-        todayStatus:tsManual?(savedRec.todayStatus||null):null,todayStatusManual:tsManual,weekendDates:savedRec.weekendDates||[],weekendHoursMap:savedRec.weekendHoursMap||{},
+        todayStatus:savedRec.todayStatus||null,todayStatusManual:savedRec.todayStatusManual||!!(savedRec.todayStatus),weekendDates:savedRec.weekendDates||[],weekendHoursMap:savedRec.weekendHoursMap||{},
         reason:savedRec.reason||'',location:savedRec.location||'',
         confirmed:!!(savedRec.dayStatus||savedRec.clockIn),
         reminders:[],juniorNotified:false};
@@ -555,15 +554,15 @@ function reloadVotes(){
     S.votes=S.votes.map(v=>{
       const fbRec=fbRecords.find(r=>r.id===v.id);
       if(fbRec&&!v.confirmed){
-        const fbTS=(fbRec.todayStatusManual)?(fbRec.todayStatus||v.todayStatus):v.todayStatus;
+        const fbTS=fbRec.todayStatus||v.todayStatus;
         changed=true;
         return{...v,dayStatus:fbRec.dayStatus||v.dayStatus,clockIn:fbRec.clockIn||v.clockIn,clockOut:fbRec.clockOut||v.clockOut,
-          todayStatus:fbTS,todayStatusManual:fbRec.todayStatusManual||v.todayStatusManual||false,weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
+          todayStatus:fbTS,todayStatusManual:!!(fbTS),weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
           confirmed:!!(fbRec.dayStatus||fbRec.clockIn)};
       }
       // confirmed 상태여도 Firebase에 todayStatus가 있으면 병합
       if(fbRec&&v.confirmed){
-        const fbTS=(fbRec.todayStatusManual)?(fbRec.todayStatus||null):null;
+        const fbTS=fbRec.todayStatus||null;
         const mergedTS=fbTS||v.todayStatus;
         if(mergedTS!==v.todayStatus){
           changed=true;
@@ -594,13 +593,12 @@ function reloadVotes(){
       const fbRec=fbRecords.find(r=>r.id===v.id);
       if(fbRec){
         const newDS=fbRec.dayStatus||null,newCI=fbRec.clockIn||null,newCO=fbRec.clockOut||null;
-        const newTSManual=fbRec.todayStatusManual||false;
-        const newTS=newTSManual?(fbRec.todayStatus||null):null;
+        const newTS=fbRec.todayStatus||null;
         // 로컬에 confirmed 데이터 있는데 Firebase가 비어있으면 → 로컬 유지
         if(!newDS&&!newCI&&v.confirmed)return v;
         // todayStatus: Firebase에 없으면 로컬 값 유지
         const mergedTS=(newTS||v.todayStatus);
-        const mergedTSManual=(newTSManual||v.todayStatusManual);
+        const mergedTSManual=!!(mergedTS);
         const mergedDS=newDS||v.dayStatus;
         const mergedCI=newCI||v.clockIn;
         const mergedCO=newCO||v.clockOut;
