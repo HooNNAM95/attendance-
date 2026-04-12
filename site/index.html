@@ -475,7 +475,7 @@ function deleteDogeupName(name){
   const list=loadDogeupNames().filter(n=>n!==name);
   saveDogeupNames(list);render();
 }
-const DATA_VERSION='v9_ot_fix';
+const DATA_VERSION='v10_weekend_fix';
 function loadMembers(){
   const ver=localStorage.getItem('members_ver');
   if(ver!==DATA_VERSION){localStorage.removeItem('members');localStorage.removeItem('away');localStorage.setItem('members_ver',DATA_VERSION);}
@@ -532,8 +532,9 @@ function reloadVotes(){
     const savedRec=saved?saved.find(r=>r.id===m.id):null;
     if(existing&&existing.confirmed)return{...existing,...m};
     if(savedRec){
+      const tsManual=savedRec.todayStatusManual||false;
       return{...m,dayStatus:savedRec.dayStatus||null,clockIn:savedRec.clockIn||null,clockOut:savedRec.clockOut||null,
-        todayStatus:savedRec.todayStatus||null,todayStatusManual:savedRec.todayStatusManual||!!(savedRec.todayStatus),weekendDates:savedRec.weekendDates||[],weekendHoursMap:savedRec.weekendHoursMap||{},
+        todayStatus:tsManual?(savedRec.todayStatus||null):null,todayStatusManual:tsManual,weekendDates:savedRec.weekendDates||[],weekendHoursMap:savedRec.weekendHoursMap||{},
         reason:savedRec.reason||'',location:savedRec.location||'',
         confirmed:!!(savedRec.dayStatus||savedRec.clockIn),
         reminders:[],juniorNotified:false};
@@ -554,19 +555,23 @@ function reloadVotes(){
     S.votes=S.votes.map(v=>{
       const fbRec=fbRecords.find(r=>r.id===v.id);
       if(fbRec&&!v.confirmed){
-        const fbTS=fbRec.todayStatus||v.todayStatus;
+        const fbTS=(fbRec.todayStatusManual)?(fbRec.todayStatus||v.todayStatus):v.todayStatus;
         changed=true;
         return{...v,dayStatus:fbRec.dayStatus||v.dayStatus,clockIn:fbRec.clockIn||v.clockIn,clockOut:fbRec.clockOut||v.clockOut,
-          todayStatus:fbTS,todayStatusManual:!!(fbTS),weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
+          todayStatus:fbTS,todayStatusManual:fbRec.todayStatusManual||v.todayStatusManual||false,weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
           confirmed:!!(fbRec.dayStatus||fbRec.clockIn)};
       }
-      // confirmed 상태여도 Firebase에 todayStatus가 있으면 병합
+      // confirmed 상태여도 Firebase에 todayStatus/주말근무 데이터가 있으면 병합
       if(fbRec&&v.confirmed){
-        const fbTS=fbRec.todayStatus||null;
+        const fbTS=(fbRec.todayStatusManual)?(fbRec.todayStatus||null):null;
         const mergedTS=fbTS||v.todayStatus;
-        if(mergedTS!==v.todayStatus){
+        const fbWD=fbRec.weekendDates||v.weekendDates||[];
+        const fbWHM=fbRec.weekendHoursMap||v.weekendHoursMap||{};
+        const fbWTM=fbRec.weekendTimeMap||v.weekendTimeMap||{};
+        const needUpdate=mergedTS!==v.todayStatus||JSON.stringify(fbWD)!==JSON.stringify(v.weekendDates||[])||JSON.stringify(fbWTM)!==JSON.stringify(v.weekendTimeMap||{});
+        if(needUpdate){
           changed=true;
-          return{...v,todayStatus:mergedTS,todayStatusManual:fbRec.todayStatusManual||v.todayStatusManual};
+          return{...v,todayStatus:mergedTS,todayStatusManual:fbRec.todayStatusManual||v.todayStatusManual,weekendDates:fbWD,weekendHoursMap:fbWHM,weekendTimeMap:fbWTM};
         }
       }
       return v;
@@ -593,12 +598,13 @@ function reloadVotes(){
       const fbRec=fbRecords.find(r=>r.id===v.id);
       if(fbRec){
         const newDS=fbRec.dayStatus||null,newCI=fbRec.clockIn||null,newCO=fbRec.clockOut||null;
-        const newTS=fbRec.todayStatus||null;
+        const newTSManual=fbRec.todayStatusManual||false;
+        const newTS=newTSManual?(fbRec.todayStatus||null):null;
         // 로컬에 confirmed 데이터 있는데 Firebase가 비어있으면 → 로컬 유지
         if(!newDS&&!newCI&&v.confirmed)return v;
         // todayStatus: Firebase에 없으면 로컬 값 유지
         const mergedTS=(newTS||v.todayStatus);
-        const mergedTSManual=!!(mergedTS);
+        const mergedTSManual=(newTSManual||v.todayStatusManual);
         const mergedDS=newDS||v.dayStatus;
         const mergedCI=newCI||v.clockIn;
         const mergedCO=newCO||v.clockOut;
@@ -1694,7 +1700,15 @@ async function dlWeekly(officeFilter){
           if(ai?.type)setCellStr(weeklyWs,row,col,ai.type);
           return;
         }
-        if(isOffDay(wd))return;
+        if(isOffDay(wd)){
+          // 주말/공휴일이라도 주말근무 데이터가 있으면 시간 표시
+          const wkEntry=getWeekendWorkForDate(v,wd);
+          if(wkEntry&&Number(wkEntry.hours||0)>0){
+            setCellNum(weeklyWs,row,col,Number(wkEntry.hours));
+            weekTotal+=Number(wkEntry.hours);
+          }
+          return;
+        }
 
         const dk=dateKey(wd);
         const prevDay=getPrevWorkday(S.simTime);
@@ -2306,8 +2320,21 @@ function rToday(root){
       left.append(info);
       row.append(left);
       
-      // 상태 뱃지 (금일만)
-      row.append(h('div',{style:{padding:'4px 10px',borderRadius:'8px',fontSize:'11px',fontWeight:800,color:stColor,background:stColor+'18',whiteSpace:'nowrap'}},status));
+      // 우측: 상태 뱃지 + 주말근무 표시
+      const right=h('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:'3px'}});
+      right.append(h('div',{style:{padding:'4px 10px',borderRadius:'8px',fontSize:'11px',fontWeight:800,color:stColor,background:stColor+'18',whiteSpace:'nowrap'}},status));
+      // 주말근무 데이터 표시
+      if(v.weekendDates?.length){
+        const wkLines=(v.weekendDates||[]).map(d=>{
+          const item=(v.weekendTimeMap&&v.weekendTimeMap[d])||{};
+          const hrs=item.hours||(v.weekendHoursMap&&v.weekendHoursMap[d])||0;
+          return d.slice(5)+' '+(item.clockIn||'')+'~'+(item.clockOut||'')+' ('+hrs+'h)';
+        });
+        right.append(h('div',{style:{fontSize:'9px',color:'#f59e0b',fontWeight:600,textAlign:'right'}},
+          '📅 '+wkLines.join(', ')
+        ));
+      }
+      row.append(right);
       
       list.append(row);
     });
@@ -2949,8 +2976,9 @@ function rStatus(root){
         
         // 주말출근 확인: wd 날짜의 weekendTimeMap
         let recWeekend=0;
-        // 오늘 투표 데이터에서 주말출근 확인
-        if(v.weekendHoursMap&&v.weekendHoursMap[dk])recWeekend=Number(v.weekendHoursMap[dk])||0;
+        // 오늘 투표 데이터에서 주말출근 확인 (weekendTimeMap 우선, weekendHoursMap 보조)
+        if(v.weekendTimeMap&&v.weekendTimeMap[dk]?.hours)recWeekend=Number(v.weekendTimeMap[dk].hours)||0;
+        if(recWeekend<=0&&v.weekendHoursMap&&v.weekendHoursMap[dk])recWeekend=Number(v.weekendHoursMap[dk])||0;
         if(recWeekend<=0){
           // 과거 투표기록에서 확인 (wd의 다음 근무일에 투표했을 수 있음)
           for(let fwd=0;fwd<=5;fwd++){
