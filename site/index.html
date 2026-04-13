@@ -1471,12 +1471,13 @@ function getWeekendWorkForDate(member,date){
   if(cur?.weekendTimeMap&&cur.weekendTimeMap[dk]){
     const item=cur.weekendTimeMap[dk];
     if(item.clockIn&&item.clockOut) return item;
+    if(item.hours) return {clockIn:item.clockIn||'08:30',clockOut:item.clockOut||'17:30',hours:item.hours};
   }
   if(cur?.weekendHoursMap&&cur.weekendHoursMap[dk]&&Number(cur.weekendHoursMap[dk])>0){
     return {clockIn:'08:30',clockOut:'09:30',hours:Number(cur.weekendHoursMap[dk])};
   }
-  // localStorage 과거 기록에서 확인 (주말근무는 다음 근무일에 투표 시 입력되므로 앞뒤 탐색)
-  const searchOffsets=[0,1,2,3,4,5,-1,-2,-3,-4,-5];
+  // localStorage 과거 기록에서 확인 (주말근무는 그 다음 근무일에 투표 시 입력되므로 앞뒤 탐색)
+  const searchOffsets=[1,2,3,-1,0,4,5,-2,-3,-4,-5];
   for(const offset of searchOffsets){
     const chkDate=new Date(date.getFullYear(),date.getMonth(),date.getDate()+offset);
     const chkDk=dateKey(chkDate);
@@ -1485,6 +1486,7 @@ function getWeekendWorkForDate(member,date){
       if(rec?.weekendTimeMap&&rec.weekendTimeMap[dk]){
         const item=rec.weekendTimeMap[dk];
         if(item.clockIn&&item.clockOut) return item;
+        if(item.hours) return {clockIn:item.clockIn||'08:30',clockOut:item.clockOut||'17:30',hours:item.hours};
       }
       if(rec?.weekendHoursMap&&rec.weekendHoursMap[dk]&&Number(rec.weekendHoursMap[dk])>0){
         return {clockIn:'08:30',clockOut:'09:30',hours:Number(rec.weekendHoursMap[dk])};
@@ -1550,6 +1552,7 @@ function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayCl
     // - 첫 시트(토): 금요일 실제 투표 출퇴근 (lastWorkdayClocks에서)
     // - 나머지(일/월): 기본값 08:30/17:30, 단 전일이 주말/공휴일이고 주말출근이면 주말출근 시간 사용
     let clockIn='08:30', clockOut='17:30';
+    let weekendHoursOverride=null; // 주말근무 시간 직접 지정용
     
     if(isFirstSheet && lastWorkdayClocks){
       const lc=lastWorkdayClocks[m.id];
@@ -1563,6 +1566,8 @@ function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayCl
       if(wkEntry){
         clockIn=wkEntry.clockIn||'08:30';
         clockOut=wkEntry.clockOut||'17:30';
+        // 주말근무는 전체 시간이 연장근무이므로 hours를 직접 사용
+        weekendHoursOverride=Number(wkEntry.hours||0);
       }
     }
     
@@ -1570,8 +1575,8 @@ function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayCl
     setCellTime(ws,row,8,clockIn);    // I
     setCellTime(ws,row,9,clockOut);   // J
     
-    // K열: calcOvertime 직접 계산, 0이면 0 넣기
-    const ot=calcOvertime(clockIn,clockOut);
+    // K열: 주말근무면 hours 직접 사용, 평일이면 calcOvertime 계산
+    const ot=(weekendHoursOverride!=null && weekendHoursOverride>0) ? weekendHoursOverride : calcOvertime(clockIn,clockOut);
     setCellNum(ws,row,10,ot);
     
     // L열: 수식 IFERROR(VLOOKUP(K행,기준!F:G,2,FALSE),"")
@@ -2988,8 +2993,8 @@ function rStatus(root){
         if(v.weekendTimeMap&&v.weekendTimeMap[dk]?.hours)recWeekend=Number(v.weekendTimeMap[dk].hours)||0;
         if(recWeekend<=0&&v.weekendHoursMap&&v.weekendHoursMap[dk])recWeekend=Number(v.weekendHoursMap[dk])||0;
         if(recWeekend<=0){
-          // 과거 투표기록에서 확인 (주말근무는 그 다음 근무일에 투표 시 입력되므로 앞뒤 탐색)
-          const searchOffsets=[0,1,2,3,4,5,-1,-2,-3,-4,-5];
+          // 과거 투표기록에서 확인 (주말근무는 다음 근무일에 투표 시 입력되므로 앞뒤 탐색)
+          const searchOffsets=[1,2,3,-1,0,4,5,-2,-3,-4,-5];
           for(const offset of searchOffsets){
             const chkDk=dateKey(new Date(wd.getFullYear(),wd.getMonth(),wd.getDate()+offset));
             const raw=localStorage.getItem('day_'+chkDk);
