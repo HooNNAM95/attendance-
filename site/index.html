@@ -534,7 +534,7 @@ function reloadVotes(){
     if(savedRec){
       const tsManual=savedRec.todayStatusManual||false;
       return{...m,dayStatus:savedRec.dayStatus||null,clockIn:savedRec.clockIn||null,clockOut:savedRec.clockOut||null,
-        todayStatus:tsManual?(savedRec.todayStatus||null):null,todayStatusManual:tsManual,weekendDates:savedRec.weekendDates||[],weekendHoursMap:savedRec.weekendHoursMap||{},
+        todayStatus:savedRec.todayStatus||null,todayStatusManual:tsManual,weekendDates:savedRec.weekendDates||[],weekendHoursMap:savedRec.weekendHoursMap||{},weekendTimeMap:savedRec.weekendTimeMap||{},
         reason:savedRec.reason||'',location:savedRec.location||'',
         confirmed:!!(savedRec.dayStatus||savedRec.clockIn),
         reminders:[],juniorNotified:false};
@@ -555,7 +555,7 @@ function reloadVotes(){
     S.votes=S.votes.map(v=>{
       const fbRec=fbRecords.find(r=>r.id===v.id);
       if(fbRec&&!v.confirmed){
-        const fbTS=(fbRec.todayStatusManual)?(fbRec.todayStatus||v.todayStatus):v.todayStatus;
+        const fbTS=fbRec.todayStatus||v.todayStatus;
         changed=true;
         return{...v,dayStatus:fbRec.dayStatus||v.dayStatus,clockIn:fbRec.clockIn||v.clockIn,clockOut:fbRec.clockOut||v.clockOut,
           todayStatus:fbTS,todayStatusManual:fbRec.todayStatusManual||v.todayStatusManual||false,weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
@@ -563,7 +563,7 @@ function reloadVotes(){
       }
       // confirmed 상태여도 Firebase에 todayStatus/주말근무 데이터가 있으면 병합
       if(fbRec&&v.confirmed){
-        const fbTS=(fbRec.todayStatusManual)?(fbRec.todayStatus||null):null;
+        const fbTS=fbRec.todayStatus||null;
         const mergedTS=fbTS||v.todayStatus;
         const fbWD=fbRec.weekendDates||v.weekendDates||[];
         const fbWHM=fbRec.weekendHoursMap||v.weekendHoursMap||{};
@@ -598,24 +598,23 @@ function reloadVotes(){
       const fbRec=fbRecords.find(r=>r.id===v.id);
       if(fbRec){
         const newDS=fbRec.dayStatus||null,newCI=fbRec.clockIn||null,newCO=fbRec.clockOut||null;
-        const newTSManual=fbRec.todayStatusManual||false;
-        const newTS=newTSManual?(fbRec.todayStatus||null):null;
-        // 로컬에 confirmed 데이터 있는데 Firebase가 비어있으면 → 로컬 유지 (단 주말근무 데이터는 병합)
+        const newTS=fbRec.todayStatus||null;
+        // 로컬에 confirmed 데이터 있는데 Firebase가 비어있으면 → 로컬 유지 (단 todayStatus/주말근무 데이터는 병합)
         if(!newDS&&!newCI&&v.confirmed){
           const fbWD=fbRec.weekendDates||[];
           const fbWTM=fbRec.weekendTimeMap||{};
-          if(fbWD.length||Object.keys(fbWTM).length){
-            const wdChanged=JSON.stringify(fbWD)!==JSON.stringify(v.weekendDates||[])||JSON.stringify(fbWTM)!==JSON.stringify(v.weekendTimeMap||{});
-            if(wdChanged){
-              changed=true;
-              return{...v,weekendDates:fbWD,weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbWTM};
-            }
+          const fbTS2=fbRec.todayStatus||null;
+          const wdChanged=JSON.stringify(fbWD)!==JSON.stringify(v.weekendDates||[])||JSON.stringify(fbWTM)!==JSON.stringify(v.weekendTimeMap||{});
+          const tsChanged=fbTS2&&fbTS2!==v.todayStatus;
+          if(wdChanged||tsChanged){
+            changed=true;
+            return{...v,todayStatus:fbTS2||v.todayStatus,todayStatusManual:fbRec.todayStatusManual||v.todayStatusManual,weekendDates:fbWD.length?fbWD:(v.weekendDates||[]),weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:Object.keys(fbWTM).length?fbWTM:(v.weekendTimeMap||{})};
           }
           return v;
         }
         // todayStatus: Firebase에 없으면 로컬 값 유지
         const mergedTS=(newTS||v.todayStatus);
-        const mergedTSManual=(newTSManual||v.todayStatusManual);
+        const mergedTSManual=((fbRec.todayStatusManual||false)||v.todayStatusManual);
         const mergedDS=newDS||v.dayStatus;
         const mergedCI=newCI||v.clockIn;
         const mergedCO=newCO||v.clockOut;
@@ -1239,7 +1238,6 @@ const STATUS_COL_MAP={
   '국내출장':16,'해외출장':17,'자가격리':18,'교육연수':19,'야간근무':20,
   '연차':21,'오전반차':22,'오후반차':23,'경조휴가':24,'장기휴가':25,
   '일반휴직':26,'출산휴직':27,'육아휴직':28,'병가휴직':29,
-  '공가':24,'병가':29,
   '주말출근':13, // 조퇴 자리 임시
 };
 
