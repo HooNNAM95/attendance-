@@ -478,7 +478,7 @@ function deleteDogeupName(name){
 const DATA_VERSION='v11_full_fix';
 function loadMembers(){
   const ver=localStorage.getItem('members_ver');
-  if(ver!==DATA_VERSION){localStorage.removeItem('members');localStorage.removeItem('away');localStorage.setItem('members_ver',DATA_VERSION);}
+  if(ver!==DATA_VERSION){localStorage.removeItem('members');localStorage.setItem('members_ver',DATA_VERSION);}
   const saved=localStorage.getItem('members');
   if(saved){const parsed=JSON.parse(saved);if(parsed.length)return parsed;}
   return MEMBERS;
@@ -611,7 +611,6 @@ function reloadVotes(){
           }
           return v;
         }
-        // todayStatus: Firebase 값 우선, 없으면 로컬 값 유지
         const mergedTS=(newTS||v.todayStatus);
         const mergedTSManual=((fbRec.todayStatusManual||false)||v.todayStatusManual);
         const mergedDS=newDS||v.dayStatus;
@@ -925,19 +924,14 @@ function getWeeklyDownloadLabel(baseDate){
   return (dates[0].getMonth()+1)+'/'+dates[0].getDate()+'~'+(dates[6].getMonth()+1)+'/'+dates[6].getDate();
 }
 function getNearbyWeekendOptions(baseDate){
-  // 투표 대상 주간(다운로드 주간)의 토/일/공휴일을 표시
-  // 월요일에 투표 시 지난주 토/일이 나와야 함
   const weekDates=getWeeklyDownloadDates(baseDate);
   const dates=[];
   weekDates.forEach(d=>{
     if(d.getDay()===6||d.getDay()===0||isHoliday(d))dates.push(d);
   });
-  // 투표일(오늘)이 공휴일이면 오늘도 포함
   const today=new Date(baseDate.getFullYear(),baseDate.getMonth(),baseDate.getDate());
   const todayKey=dateKey(today);
-  if(isHoliday(today)&&!dates.find(d=>dateKey(d)===todayKey)){
-    dates.push(today);
-  }
+  if(isHoliday(today)&&!dates.find(d=>dateKey(d)===todayKey))dates.push(today);
   const uniq=[]; const seen=new Set();
   dates.forEach(d=>{const k=dateKey(d); if(!seen.has(k)){seen.add(k); uniq.push(d);}});
   return uniq;
@@ -1476,7 +1470,6 @@ function clearSheetRange(ws,sr,er,sc,ec){
 // ═══ 주말출근 데이터 조회 헬퍼 ═══
 function getWeekendWorkForDate(member,date){
   const dk=dateKey(date);
-  // 현재 투표 데이터에서 확인
   const cur=(S.votes||[]).find(v=>v.id===member.id);
   if(cur?.weekendTimeMap&&cur.weekendTimeMap[dk]){
     const item=cur.weekendTimeMap[dk];
@@ -1486,7 +1479,6 @@ function getWeekendWorkForDate(member,date){
   if(cur?.weekendHoursMap&&cur.weekendHoursMap[dk]&&Number(cur.weekendHoursMap[dk])>0){
     return {clockIn:'08:30',clockOut:'09:30',hours:Number(cur.weekendHoursMap[dk])};
   }
-  // localStorage 과거 기록에서 확인 (주말근무는 다음 근무일에 투표 시 입력되므로 앞뒤 탐색)
   const searchOffsets=[1,2,3,-1,0,4,5,-2,-3,-4,-5];
   for(const offset of searchOffsets){
     const chkDate=new Date(date.getFullYear(),date.getMonth(),date.getDate()+offset);
@@ -1562,7 +1554,7 @@ function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayCl
     // - 첫 시트(토): 금요일 실제 투표 출퇴근 (lastWorkdayClocks에서)
     // - 나머지(일/월): 기본값 08:30/17:30, 단 전일이 주말/공휴일이고 주말출근이면 주말출근 시간 사용
     let clockIn='08:30', clockOut='17:30';
-    let weekendHoursOverride=null; // 주말근무 시간 직접 지정용
+    let weekendHoursOverride=null;
     
     if(isFirstSheet && lastWorkdayClocks){
       const lc=lastWorkdayClocks[m.id];
@@ -1571,7 +1563,6 @@ function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayCl
         clockOut=lc.clockOut||'17:30';
       }
     } else if(!isFirstSheet && prevIsOff){
-      // 전일이 주말/공휴일: 해당 멤버의 주말출근 데이터 확인
       const wkEntry=getWeekendWorkForDate(m,prevDate);
       if(wkEntry){
         clockIn=wkEntry.clockIn||'08:30';
@@ -1584,8 +1575,8 @@ function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayCl
     setCellTime(ws,row,8,clockIn);    // I
     setCellTime(ws,row,9,clockOut);   // J
     
-    // K열: 주말근무면 hours 직접 사용, 평일이면 calcOvertime 계산
-    const ot=(weekendHoursOverride!=null && weekendHoursOverride>0) ? weekendHoursOverride : calcOvertime(clockIn,clockOut);
+    // K열: 주말근무면 hours 직접, 평일이면 calcOvertime
+    const ot=(weekendHoursOverride!=null&&weekendHoursOverride>0)?weekendHoursOverride:calcOvertime(clockIn,clockOut);
     setCellNum(ws,row,10,ot);
     
     // L열: 수식 IFERROR(VLOOKUP(K행,기준!F:G,2,FALSE),"")
@@ -3002,7 +2993,7 @@ function rStatus(root){
         if(v.weekendTimeMap&&v.weekendTimeMap[dk]?.hours)recWeekend=Number(v.weekendTimeMap[dk].hours)||0;
         if(recWeekend<=0&&v.weekendHoursMap&&v.weekendHoursMap[dk])recWeekend=Number(v.weekendHoursMap[dk])||0;
         if(recWeekend<=0){
-          // 과거 투표기록에서 확인 (주말근무는 다음 근무일에 투표 시 입력되므로 앞뒤 탐색)
+          // 과거 투표기록에서 확인 (wd의 다음 근무일에 투표했을 수 있음)
           const searchOffsets=[1,2,3,-1,0,4,5,-2,-3,-4,-5];
           for(const offset of searchOffsets){
             const chkDk=dateKey(new Date(wd.getFullYear(),wd.getMonth(),wd.getDate()+offset));
