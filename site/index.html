@@ -475,10 +475,10 @@ function deleteDogeupName(name){
   const list=loadDogeupNames().filter(n=>n!==name);
   saveDogeupNames(list);render();
 }
-const DATA_VERSION='v12_sync_fix';
+const DATA_VERSION='v10_weekend_fix';
 function loadMembers(){
   const ver=localStorage.getItem('members_ver');
-  if(ver!==DATA_VERSION){localStorage.removeItem('members');localStorage.setItem('members_ver',DATA_VERSION);}
+  if(ver!==DATA_VERSION){localStorage.removeItem('members');localStorage.removeItem('away');localStorage.setItem('members_ver',DATA_VERSION);}
   const saved=localStorage.getItem('members');
   if(saved){const parsed=JSON.parse(saved);if(parsed.length)return parsed;}
   return MEMBERS;
@@ -534,7 +534,7 @@ function reloadVotes(){
     if(savedRec){
       const tsManual=savedRec.todayStatusManual||false;
       return{...m,dayStatus:savedRec.dayStatus||null,clockIn:savedRec.clockIn||null,clockOut:savedRec.clockOut||null,
-        todayStatus:savedRec.todayStatus||null,todayStatusManual:tsManual,weekendDates:savedRec.weekendDates||[],weekendHoursMap:savedRec.weekendHoursMap||{},weekendTimeMap:savedRec.weekendTimeMap||{},
+        todayStatus:tsManual?(savedRec.todayStatus||null):null,todayStatusManual:tsManual,weekendDates:savedRec.weekendDates||[],weekendHoursMap:savedRec.weekendHoursMap||{},
         reason:savedRec.reason||'',location:savedRec.location||'',
         confirmed:!!(savedRec.dayStatus||savedRec.clockIn),
         reminders:[],juniorNotified:false};
@@ -545,8 +545,8 @@ function reloadVotes(){
   
   // Firebase에서 실시간 동기화 (다른 사람 투표도 반영)
   fbLoadDayVotes(dayKey,fbData=>{
-    console.log('[FB] load',dayKey,fbData?Object.keys(fbData).length+'명':'없음');
     if(!fbData){
+      // Firebase에 데이터 없으면 여기서 자동입력 시도
       tryAutoFill();
       return;
     }
@@ -555,7 +555,7 @@ function reloadVotes(){
     S.votes=S.votes.map(v=>{
       const fbRec=fbRecords.find(r=>r.id===v.id);
       if(fbRec&&!v.confirmed){
-        const fbTS=fbRec.todayStatus||v.todayStatus;
+        const fbTS=(fbRec.todayStatusManual)?(fbRec.todayStatus||v.todayStatus):v.todayStatus;
         changed=true;
         return{...v,dayStatus:fbRec.dayStatus||v.dayStatus,clockIn:fbRec.clockIn||v.clockIn,clockOut:fbRec.clockOut||v.clockOut,
           todayStatus:fbTS,todayStatusManual:fbRec.todayStatusManual||v.todayStatusManual||false,weekendDates:fbRec.weekendDates||v.weekendDates||[],weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbRec.weekendTimeMap||v.weekendTimeMap||{},reason:fbRec.reason||v.reason,location:fbRec.location||v.location,
@@ -563,7 +563,7 @@ function reloadVotes(){
       }
       // confirmed 상태여도 Firebase에 todayStatus/주말근무 데이터가 있으면 병합
       if(fbRec&&v.confirmed){
-        const fbTS=fbRec.todayStatus||null;
+        const fbTS=(fbRec.todayStatusManual)?(fbRec.todayStatus||null):null;
         const mergedTS=fbTS||v.todayStatus;
         const fbWD=fbRec.weekendDates||v.weekendDates||[];
         const fbWHM=fbRec.weekendHoursMap||v.weekendHoursMap||{};
@@ -591,28 +591,31 @@ function reloadVotes(){
   
   // 실시간 리스너 (다른 사람이 투표하면 즉시 반영)
   fbListenDayVotes(dayKey,fbData=>{
-    if(!fbData){console.log('[FB] listen: empty');return;}
+    if(!fbData)return;
     const fbRecords=Object.values(fbData);
-    console.log('[FB] listen:',fbRecords.length,'명');
     let changed=false;
     S.votes=S.votes.map(v=>{
       const fbRec=fbRecords.find(r=>r.id===v.id);
       if(fbRec){
         const newDS=fbRec.dayStatus||null,newCI=fbRec.clockIn||null,newCO=fbRec.clockOut||null;
-        const newTS=fbRec.todayStatus||null;
+        const newTSManual=fbRec.todayStatusManual||false;
+        const newTS=newTSManual?(fbRec.todayStatus||null):null;
+        // 로컬에 confirmed 데이터 있는데 Firebase가 비어있으면 → 로컬 유지 (단 주말근무 데이터는 병합)
         if(!newDS&&!newCI&&v.confirmed){
           const fbWD=fbRec.weekendDates||[];
           const fbWTM=fbRec.weekendTimeMap||{};
-          const wdChanged=JSON.stringify(fbWD)!==JSON.stringify(v.weekendDates||[])||JSON.stringify(fbWTM)!==JSON.stringify(v.weekendTimeMap||{});
-          const tsChanged=newTS&&newTS!==v.todayStatus;
-          if(wdChanged||tsChanged){
-            changed=true;
-            return{...v,todayStatus:newTS||v.todayStatus,todayStatusManual:fbRec.todayStatusManual||v.todayStatusManual,weekendDates:fbWD.length?fbWD:(v.weekendDates||[]),weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:Object.keys(fbWTM).length?fbWTM:(v.weekendTimeMap||{})};
+          if(fbWD.length||Object.keys(fbWTM).length){
+            const wdChanged=JSON.stringify(fbWD)!==JSON.stringify(v.weekendDates||[])||JSON.stringify(fbWTM)!==JSON.stringify(v.weekendTimeMap||{});
+            if(wdChanged){
+              changed=true;
+              return{...v,weekendDates:fbWD,weekendHoursMap:fbRec.weekendHoursMap||v.weekendHoursMap||{},weekendTimeMap:fbWTM};
+            }
           }
           return v;
         }
+        // todayStatus: Firebase에 없으면 로컬 값 유지
         const mergedTS=(newTS||v.todayStatus);
-        const mergedTSManual=((fbRec.todayStatusManual||false)||v.todayStatusManual);
+        const mergedTSManual=(newTSManual||v.todayStatusManual);
         const mergedDS=newDS||v.dayStatus;
         const mergedCI=newCI||v.clockIn;
         const mergedCO=newCO||v.clockOut;
@@ -877,7 +880,14 @@ function submitWeekend(){
   addChat("bot","💼 등록!\n"+lines.join("\n"),"confirm");
   S.modal=null;S.weekendForm={selected:[...dates],entries:JSON.parse(JSON.stringify(entries)),memo:''};render();
 }
-function submitAway(){if(!S.awayForm.from||!S.awayForm.to)return;const t=getMembers().find(m=>m.id===S.awayForm.memberId);const a={...S.awayForm,id:Date.now(),registeredBy:S.user.name,memberName:t?.name||''};S.awayPeriods.push(a);addChat("bot","✈️ 부재 등록!\n👤 "+t?.name+" ("+t?.office+")\n📋 "+a.type+"\n📅 "+a.from+" ~ "+a.to+(a.memo?"\n📝 "+a.memo:"")+"\n\n⏸️ 기간 내 알림 자동 면제","system");S.modal=null;save();render();}
+function submitAway(){if(!S.awayForm.from||!S.awayForm.to)return;const t=getMembers().find(m=>m.id===S.awayForm.memberId);const a={...S.awayForm,id:Date.now(),registeredBy:S.user.name,memberName:t?.name||''};
+// 같은 사람+겹치는 날짜 기존 부재 제거 (덮어쓰기)
+const newFrom=new Date(a.from+'T00:00:00'),newTo=new Date(a.to+'T00:00:00');
+const removed=S.awayPeriods.filter(p=>p.memberId===a.memberId&&new Date(p.from+'T00:00:00')<=newTo&&new Date(p.to+'T00:00:00')>=newFrom);
+S.awayPeriods=S.awayPeriods.filter(p=>!removed.includes(p));
+S.awayPeriods.push(a);
+const overwriteMsg=removed.length?'\n🔄 기존 '+removed.length+'건 덮어쓰기':'';
+addChat("bot","✈️ 부재 등록!\n👤 "+t?.name+" ("+t?.office+")\n📋 "+a.type+"\n📅 "+a.from+" ~ "+a.to+(a.memo?"\n📝 "+a.memo:"")+overwriteMsg+"\n\n⏸️ 기간 내 알림 자동 면제","system");S.modal=null;save();render();}
 function deleteAway(id){S.awayPeriods=S.awayPeriods.filter(a=>a.id!==id);save();render();}
 
 function sendReminder(idx){
@@ -924,13 +934,14 @@ function getWeeklyDownloadLabel(baseDate){
   return (dates[0].getMonth()+1)+'/'+dates[0].getDate()+'~'+(dates[6].getMonth()+1)+'/'+dates[6].getDate();
 }
 function getNearbyWeekendOptions(baseDate){
-  const weekDates=getWeeklyDownloadDates(baseDate);
+  // 해당 주(월~일)의 토/일/공휴일만 표시
+  const weekDates=getWeekDates(baseDate);
   const dates=[];
-  weekDates.forEach(d=>{if(d.getDay()===6||d.getDay()===0||isHoliday(d))dates.push(d);});
-  const today=new Date(baseDate.getFullYear(),baseDate.getMonth(),baseDate.getDate());
-  if(isHoliday(today)&&!dates.find(d=>dateKey(d)===dateKey(today)))dates.push(today);
-  const uniq=[];const seen=new Set();
-  dates.forEach(d=>{const k=dateKey(d);if(!seen.has(k)){seen.add(k);uniq.push(d);}});
+  weekDates.forEach(d=>{
+    if(d.getDay()===6||d.getDay()===0||isHoliday(d))dates.push(d);
+  });
+  const uniq=[]; const seen=new Set();
+  dates.forEach(d=>{const k=dateKey(d); if(!seen.has(k)){seen.add(k); uniq.push(d);}});
   return uniq;
 }
 function getWeekendHours(v,date){
@@ -1235,7 +1246,6 @@ const STATUS_COL_MAP={
   '국내출장':16,'해외출장':17,'자가격리':18,'교육연수':19,'야간근무':20,
   '연차':21,'오전반차':22,'오후반차':23,'경조휴가':24,'장기휴가':25,
   '일반휴직':26,'출산휴직':27,'육아휴직':28,'병가휴직':29,
-  '공가':24,'병가':29,
   '주말출근':13, // 조퇴 자리 임시
 };
 
@@ -1467,24 +1477,24 @@ function clearSheetRange(ws,sr,er,sc,ec){
 // ═══ 주말출근 데이터 조회 헬퍼 ═══
 function getWeekendWorkForDate(member,date){
   const dk=dateKey(date);
+  // 현재 투표 데이터에서 확인
   const cur=(S.votes||[]).find(v=>v.id===member.id);
   if(cur?.weekendTimeMap&&cur.weekendTimeMap[dk]){
     const item=cur.weekendTimeMap[dk];
     if(item.clockIn&&item.clockOut) return item;
-    if(item.hours) return {clockIn:item.clockIn||'08:30',clockOut:item.clockOut||'17:30',hours:item.hours};
   }
   if(cur?.weekendHoursMap&&cur.weekendHoursMap[dk]&&Number(cur.weekendHoursMap[dk])>0){
     return {clockIn:'08:30',clockOut:'09:30',hours:Number(cur.weekendHoursMap[dk])};
   }
-  const searchOffsets=[1,2,3,-1,0,4,5,-2,-3,-4,-5];
-  for(const offset of searchOffsets){
-    const chkDk=dateKey(new Date(date.getFullYear(),date.getMonth(),date.getDate()+offset));
+  // localStorage 과거 기록에서 확인
+  for(let fwd=0;fwd<=5;fwd++){
+    const chkDate=new Date(date.getFullYear(),date.getMonth(),date.getDate()+fwd);
+    const chkDk=dateKey(chkDate);
     const raw=localStorage.getItem('day_'+chkDk);
     if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(rr=>rr.id===member.id||rr.name===member.name);
       if(rec?.weekendTimeMap&&rec.weekendTimeMap[dk]){
         const item=rec.weekendTimeMap[dk];
         if(item.clockIn&&item.clockOut) return item;
-        if(item.hours) return {clockIn:item.clockIn||'08:30',clockOut:item.clockOut||'17:30',hours:item.hours};
       }
       if(rec?.weekendHoursMap&&rec.weekendHoursMap[dk]&&Number(rec.weekendHoursMap[dk])>0){
         return {clockIn:'08:30',clockOut:'09:30',hours:Number(rec.weekendHoursMap[dk])};
@@ -1550,18 +1560,28 @@ function fillDailyOvertimeSheet(ws,targetDate,members,isFirstSheet,lastWorkdayCl
     // - 첫 시트(토): 금요일 실제 투표 출퇴근 (lastWorkdayClocks에서)
     // - 나머지(일/월): 기본값 08:30/17:30, 단 전일이 주말/공휴일이고 주말출근이면 주말출근 시간 사용
     let clockIn='08:30', clockOut='17:30';
-    let weekendHoursOverride=null;
+    
     if(isFirstSheet && lastWorkdayClocks){
       const lc=lastWorkdayClocks[m.id];
-      if(lc){clockIn=lc.clockIn||'08:30';clockOut=lc.clockOut||'17:30';}
+      if(lc){
+        clockIn=lc.clockIn||'08:30';
+        clockOut=lc.clockOut||'17:30';
+      }
     } else if(!isFirstSheet && prevIsOff){
+      // 전일이 주말/공휴일: 해당 멤버의 주말출근 데이터 확인
       const wkEntry=getWeekendWorkForDate(m,prevDate);
-      if(wkEntry){clockIn=wkEntry.clockIn||'08:30';clockOut=wkEntry.clockOut||'17:30';weekendHoursOverride=Number(wkEntry.hours||0);}
+      if(wkEntry){
+        clockIn=wkEntry.clockIn||'08:30';
+        clockOut=wkEntry.clockOut||'17:30';
+      }
     }
-    setCellTime(ws,row,6,clockOut);
-    setCellTime(ws,row,8,clockIn);
-    setCellTime(ws,row,9,clockOut);
-    const ot=(weekendHoursOverride!=null&&weekendHoursOverride>0)?weekendHoursOverride:calcOvertime(clockIn,clockOut);
+    
+    setCellTime(ws,row,6,clockOut);   // G
+    setCellTime(ws,row,8,clockIn);    // I
+    setCellTime(ws,row,9,clockOut);   // J
+    
+    // K열: calcOvertime 직접 계산, 0이면 0 넣기
+    const ot=calcOvertime(clockIn,clockOut);
     setCellNum(ws,row,10,ot);
     
     // L열: 수식 IFERROR(VLOOKUP(K행,기준!F:G,2,FALSE),"")
@@ -2979,13 +2999,12 @@ function rStatus(root){
         if(recWeekend<=0&&v.weekendHoursMap&&v.weekendHoursMap[dk])recWeekend=Number(v.weekendHoursMap[dk])||0;
         if(recWeekend<=0){
           // 과거 투표기록에서 확인 (wd의 다음 근무일에 투표했을 수 있음)
-          const searchOffsets=[1,2,3,-1,0,4,5,-2,-3,-4,-5];
-          for(const offset of searchOffsets){
-            const chkDk=dateKey(new Date(wd.getFullYear(),wd.getMonth(),wd.getDate()+offset));
+          for(let fwd=0;fwd<=5;fwd++){
+            const chkDk=dateKey(new Date(wd.getFullYear(),wd.getMonth(),wd.getDate()+fwd));
             const raw=localStorage.getItem('day_'+chkDk);
             if(raw){try{const recs=JSON.parse(raw);const rec=recs.find(rr=>rr.id===v.id||rr.name===v.name);
+              if(rec?.weekendHoursMap&&rec.weekendHoursMap[dk])recWeekend=Number(rec.weekendHoursMap[dk])||0;
               if(rec?.weekendTimeMap&&rec.weekendTimeMap[dk]?.hours)recWeekend=Number(rec.weekendTimeMap[dk].hours)||0;
-              if(recWeekend<=0&&rec?.weekendHoursMap&&rec.weekendHoursMap[dk])recWeekend=Number(rec.weekendHoursMap[dk])||0;
               if(recWeekend>0)break;
             }catch(e){}}
           }
@@ -3525,10 +3544,9 @@ function rModal(root){
     }
   });
   fbLoadAway(awayList=>{
-    console.log('[FB] away:',awayList?'있음':'없음');
     if(awayList){
       const arr=Array.isArray(awayList)?awayList:Object.values(awayList);
-      console.log('[FB] away건수:',arr.length);
+      // Firebase에 데이터가 있으면 동기화, 없으면 localStorage 유지
       if(arr.length){
         S.awayPeriods=arr;
         localStorage.setItem('away',JSON.stringify(arr));
@@ -3561,9 +3579,7 @@ function rModal(root){
   });
   const todayKey=getDayKey(new Date());
   loadDayRecordFromFB(todayKey,()=>{render();});
-  db.ref('.info/connected').on('value',s=>{console.log('[FB] connected:',s.val());});
 })();
-console.log('[APP] v12_sync_fix loaded, dayKey='+getDayKey(new Date()));
 render();
 </script>
 </body>
